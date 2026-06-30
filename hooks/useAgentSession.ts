@@ -774,7 +774,7 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
     try {
       let sentSessionId: string | null = null;
       if (isNew && newSessionCwd) {
-        const selectedModel = newSessionModel;
+        const selectedModel = newSessionModel ?? newSessionDefaultModel;
         const existingSid = sessionIdRef.current ?? await ensuringNewSessionRef.current;
 
         if (existingSid) {
@@ -837,7 +837,7 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
       setAgentPhase(null);
       dispatch({ type: "end" });
     }
-  }, [isNew, newSessionCwd, newSessionModel, toolPreset, thinkingLevel, session, agentRunning, connectEvents, promoteNewSession, waitForPromptSettlement]);
+  }, [isNew, newSessionCwd, newSessionModel, newSessionDefaultModel, toolPreset, thinkingLevel, session, agentRunning, connectEvents, promoteNewSession, waitForPromptSettlement]);
 
   const handleAbort = useCallback(async () => {
     const sid = sessionIdRef.current;

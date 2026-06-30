@@ -39,25 +39,48 @@ function phaseLabel(phase: AgentPhase): string {
 }
 
 const TYPEWRITER_PHRASES = [
-  "ready when you are.",
-  "ask me anything.",
-  "let's build something cool.",
+  "直接问，也可以先选一个任务。",
+  "帮你读代码、改代码、跑验证。",
+  "把项目里的复杂问题说清楚。",
   "explore your codebase.",
-  "draft an email.",
-  "summarize that paper.",
-  "plan your weekend.",
-  "explain it like I'm five.",
   "pair-program with me.",
-  "fix that pesky bug.",
-  "translate to 中文.",
-  "write a haiku.",
-  "brainstorm ideas.",
+  "fix that bug.",
   "review my pull request.",
-  "what should we cook tonight?",
   "ship it.",
-  "make it pretty.",
-  "rubber-duck with me.",
 ];
+
+const QUICK_START_ACTIONS = [
+  {
+    title: "总结项目",
+    description: "快速了解目录结构、技术栈和运行方式",
+    prompt: "请先快速浏览这个项目，概括它的技术栈、主要目录、启动方式和最重要的检查命令。",
+  },
+  {
+    title: "找一个问题",
+    description: "从代码入口和最近上下文里找高风险点",
+    prompt: "请检查这个项目里最值得优先修的一个问题，说明原因、影响范围，并给出最小修复方案。",
+  },
+  {
+    title: "解释报错",
+    description: "粘贴终端输出后让 Pi 定位原因",
+    prompt: "我会贴一段报错。请你先判断最可能的原因，再给出可验证的排查步骤和修复方案。",
+  },
+  {
+    title: "改进 README",
+    description: "整理安装、运行、配置和常见问题",
+    prompt: "请审查 README 和项目脚本，提出能让新用户更快上手的 README 改进，并在我确认后再修改。",
+  },
+  {
+    title: "生成测试",
+    description: "为现有逻辑补一组低风险回归测试",
+    prompt: "请找一个适合补测试的核心逻辑，说明测试点，然后实现一组聚焦的回归测试并运行对应检查。",
+  },
+  {
+    title: "代码审查",
+    description: "按 bug、风险、缺失测试优先审查",
+    prompt: "请用代码审查视角检查当前改动，优先指出 bug、行为回归风险和缺失测试，按严重程度排序。",
+  },
+] as const;
 
 const CHAT_MINIMAP_WIDTH = 36;
 const CHAT_COLUMN_PADDING = 16;
@@ -184,6 +207,9 @@ export function ChatWindow({ session, newSessionCwd, onAgentEnd, onSessionCreate
   const messageRefs = useMessageRefs(visibleMessages.length);
 
   const isEmptyNew = isNew && messages.length === 0 && !streamState.isStreaming && !agentRunning;
+  const handleQuickStartPrompt = useCallback((prompt: string) => {
+    chatInputRef?.current?.insertIfEmpty(prompt);
+  }, [chatInputRef]);
 
   const availableThinkingLevels = displayModelValue
     ? (modelThinkingLevels[`${displayModelValue.provider}:${displayModelValue.modelId}`] ?? null)
@@ -295,37 +321,98 @@ export function ChatWindow({ session, newSessionCwd, onAgentEnd, onSessionCreate
       )}
 
       {isEmptyNew ? (
-        <div className="flex flex-1 flex-col items-center justify-center overflow-y-auto px-4 py-8">
-          <div className="w-full max-w-[820px]">
-            <div
-              className="mb-3"
-              style={{
-                display: "flex",
-                alignItems: "center",
-                justifyContent: "space-between",
-                gap: 12,
-                marginLeft: 16,
-                marginRight: 52,
-                fontFamily: "var(--font-mono)",
-              }}
-            >
-              <div style={{ display: "flex", alignItems: "baseline", gap: 10, minWidth: 0, flex: 1, lineHeight: 1.4, overflow: "hidden" }}>
-                <span style={{ fontSize: 28, fontWeight: 700, letterSpacing: 0, color: "var(--text)", flexShrink: 0, whiteSpace: "nowrap" }}>π</span>
-                <span style={{ fontSize: 22, color: "var(--text)", fontWeight: 700, letterSpacing: 0, flexShrink: 0, whiteSpace: "nowrap" }}>Pi Agent Web</span>
-                <span style={{ fontSize: 14, flex: "1 1 0", minWidth: 0, overflow: "hidden", whiteSpace: "nowrap", textOverflow: "ellipsis", display: "block" }}>
+        <div className="flex flex-1 flex-col overflow-hidden">
+          <div
+            className="flex flex-1 items-center justify-center overflow-y-auto px-4"
+            style={{
+              paddingTop: 56,
+              paddingBottom: 24,
+            }}
+          >
+            <div className="w-full max-w-[860px]">
+              <div
+                style={{
+                  display: "flex",
+                  flexDirection: "column",
+                  gap: 10,
+                  paddingLeft: 16,
+                  paddingRight: 52,
+                }}
+              >
+                <div style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", gap: 12 }}>
+                  <div style={{ display: "flex", alignItems: "flex-start", gap: 10, minWidth: 0, flex: 1 }}>
+                    <span style={{ fontSize: 30, lineHeight: 1.2, fontWeight: 750, letterSpacing: 0, color: "var(--text)", flexShrink: 0 }}>π</span>
+                    <h1 style={{ margin: 0, fontSize: 28, lineHeight: 1.25, color: "var(--text)", fontWeight: 720, letterSpacing: 0, overflow: "visible" }}>
+                      今天想让 Pi 做什么？
+                    </h1>
+                  </div>
+                  <div style={{ display: "flex", flexDirection: "column", alignItems: "flex-end", gap: 2, flexShrink: 0, fontFamily: "var(--font-mono)" }}>
+                    <span style={{ fontSize: 11, color: "var(--text-muted)" }}>
+                      web <span style={{ color: "var(--text)" }}>v{process.env.NEXT_PUBLIC_APP_VERSION ?? "0.0.0"}</span>
+                    </span>
+                    <span style={{ fontSize: 11, color: "var(--text-muted)" }}>
+                      pi <span style={{ color: "var(--text)" }}>v{process.env.NEXT_PUBLIC_PI_VERSION ?? "0.0.0"}</span>
+                    </span>
+                  </div>
+                </div>
+                <div style={{ fontSize: 14, color: "var(--text-muted)", lineHeight: 1.6, minHeight: 24 }}>
                   <Typewriter phrases={TYPEWRITER_PHRASES} />
-                </span>
-              </div>
-              <div style={{ display: "flex", flexDirection: "column", alignItems: "flex-end", gap: 2, flexShrink: 0 }}>
-                <span style={{ fontSize: 11, color: "var(--text-muted)" }}>
-                  web <span style={{ color: "var(--text)" }}>v{process.env.NEXT_PUBLIC_APP_VERSION ?? "0.0.0"}</span>
-                </span>
-                <span style={{ fontSize: 11, color: "var(--text-muted)" }}>
-                  pi <span style={{ color: "var(--text)" }}>v{process.env.NEXT_PUBLIC_PI_VERSION ?? "0.0.0"}</span>
-                </span>
+                </div>
               </div>
             </div>
+          </div>
+          <div style={{ flexShrink: 0, paddingBottom: 8 }}>
             <NoticeShelf notices={notices} align="right" />
+            <div
+              style={{
+                display: "flex",
+                flexWrap: "wrap",
+                gap: 8,
+                maxWidth: 820,
+                margin: "0 auto",
+                padding: "0 52px 10px 16px",
+              }}
+            >
+              {QUICK_START_ACTIONS.map((action) => (
+                <button
+                  key={action.title}
+                  type="button"
+                  onClick={() => handleQuickStartPrompt(action.prompt)}
+                  style={{
+                    display: "inline-flex",
+                    alignItems: "center",
+                    justifyContent: "center",
+                    maxWidth: "100%",
+                    padding: "7px 12px",
+                    borderRadius: 999,
+                    border: "1px solid color-mix(in srgb, var(--border) 78%, transparent)",
+                    background: "color-mix(in srgb, var(--bg-panel) 70%, var(--bg))",
+                    color: "var(--text-muted)",
+                    cursor: "pointer",
+                    fontSize: 12,
+                    lineHeight: 1.25,
+                    whiteSpace: "nowrap",
+                    boxShadow: "0 1px 2px rgba(15,23,42,0.03)",
+                    transition: "border-color 0.12s, background 0.12s, color 0.12s, transform 0.12s",
+                  }}
+                  onMouseEnter={(e) => {
+                    e.currentTarget.style.borderColor = "color-mix(in srgb, var(--accent) 42%, var(--border))";
+                    e.currentTarget.style.background = "var(--bg-hover)";
+                    e.currentTarget.style.color = "var(--text)";
+                    e.currentTarget.style.transform = "translateY(-1px)";
+                  }}
+                  onMouseLeave={(e) => {
+                    e.currentTarget.style.borderColor = "color-mix(in srgb, var(--border) 78%, transparent)";
+                    e.currentTarget.style.background = "color-mix(in srgb, var(--bg-panel) 70%, var(--bg))";
+                    e.currentTarget.style.color = "var(--text-muted)";
+                    e.currentTarget.style.transform = "translateY(0)";
+                  }}
+                  title={action.description}
+                >
+                  {action.title}
+                </button>
+              ))}
+            </div>
             {chatInputElement}
           </div>
         </div>

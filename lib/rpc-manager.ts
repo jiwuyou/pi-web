@@ -90,6 +90,16 @@ export class AgentSessionWrapper {
     this.idleTimer = setTimeout(() => this.destroy(), 10 * 60 * 1000);
   }
 
+  private refreshModelRuntime(): void {
+    try {
+      const registry = this.inner.modelRegistry;
+      registry.authStorage?.reload?.();
+      registry.refresh?.();
+    } catch (error) {
+      console.warn("Failed to refresh model runtime:", error);
+    }
+  }
+
   onEvent(listener: EventListener): () => void {
     this.listeners.push(listener);
     return () => {
@@ -109,6 +119,7 @@ export class AgentSessionWrapper {
     switch (type) {
       case "prompt": {
         // Fire and forget — events come via subscribe
+        this.refreshModelRuntime();
         const promptImages = command.images as Array<{ type: "image"; data: string; mimeType: string }> | undefined;
         const streamingBehavior = command.streamingBehavior as "steer" | "followUp" | undefined;
         this.promptRunning = true;
@@ -160,6 +171,7 @@ export class AgentSessionWrapper {
 
       case "set_model": {
         const { provider, modelId } = command as { provider: string; modelId: string };
+        this.refreshModelRuntime();
         const registry = this.inner.modelRegistry;
         const model = registry.find(provider, modelId);
         if (!model) throw new Error(`Model not found: ${provider}/${modelId}`);

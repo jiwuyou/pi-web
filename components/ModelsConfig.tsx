@@ -149,6 +149,178 @@ type Selection =
   | { type: "apikey"; providerId: string };
 
 const API_OPTIONS = ["openai-completions", "openai-responses", "anthropic-messages", "google-generative-ai"] as const;
+type ApiOption = typeof API_OPTIONS[number];
+
+interface EasyProviderPreset {
+  id: string;
+  name: string;
+  providerName: string;
+  iconId: string;
+  description: string;
+  baseUrl: string;
+  api: ApiOption;
+  keyRequired: boolean;
+  local?: boolean;
+  keyPlaceholder: string;
+  defaultModels: string[];
+}
+
+interface FetchedModel {
+  id: string;
+  name?: string;
+  ownedBy?: string;
+}
+
+type FetchModelsState =
+  | { phase: "idle" }
+  | { phase: "loading" }
+  | { phase: "success"; message?: string }
+  | { phase: "error"; message: string; hint?: string };
+
+type EasyTestState =
+  | { phase: "idle" }
+  | { phase: "testing" }
+  | { phase: "success"; message: string; latencyMs?: number; status?: number }
+  | { phase: "error"; message: string; hint?: string; latencyMs?: number; status?: number };
+
+const LOCAL_DUMMY_API_KEY = "local";
+
+const EASY_PROVIDER_PRESETS: EasyProviderPreset[] = [
+  {
+    id: "deepseek",
+    name: "DeepSeek",
+    providerName: "deepseek",
+    iconId: "deepseek",
+    description: "国内常用，适合代码和日常对话",
+    baseUrl: "https://api.deepseek.com/v1",
+    api: "openai-completions",
+    keyRequired: true,
+    keyPlaceholder: "sk-...",
+    defaultModels: ["deepseek-chat", "deepseek-reasoner"],
+  },
+  {
+    id: "openai",
+    name: "OpenAI",
+    providerName: "openai",
+    iconId: "openai",
+    description: "GPT 系列模型",
+    baseUrl: "https://api.openai.com/v1",
+    api: "openai-completions",
+    keyRequired: true,
+    keyPlaceholder: "sk-...",
+    defaultModels: ["gpt-4.1", "gpt-4.1-mini", "gpt-4o"],
+  },
+  {
+    id: "anthropic",
+    name: "Anthropic",
+    providerName: "anthropic",
+    iconId: "anthropic",
+    description: "Claude 系列模型",
+    baseUrl: "https://api.anthropic.com/v1",
+    api: "anthropic-messages",
+    keyRequired: true,
+    keyPlaceholder: "sk-ant-...",
+    defaultModels: ["claude-3-5-sonnet-latest", "claude-3-5-haiku-latest"],
+  },
+  {
+    id: "gemini",
+    name: "Gemini",
+    providerName: "google",
+    iconId: "google",
+    description: "Google Gemini API",
+    baseUrl: "https://generativelanguage.googleapis.com/v1beta",
+    api: "google-generative-ai",
+    keyRequired: true,
+    keyPlaceholder: "AIza...",
+    defaultModels: ["gemini-2.5-pro", "gemini-2.5-flash"],
+  },
+  {
+    id: "openrouter",
+    name: "OpenRouter",
+    providerName: "openrouter",
+    iconId: "openrouter",
+    description: "一个 Key 连接多家模型",
+    baseUrl: "https://openrouter.ai/api/v1",
+    api: "openai-completions",
+    keyRequired: true,
+    keyPlaceholder: "sk-or-...",
+    defaultModels: ["openai/gpt-4.1", "anthropic/claude-3.5-sonnet", "google/gemini-2.5-pro"],
+  },
+  {
+    id: "siliconflow",
+    name: "硅基流动",
+    providerName: "siliconflow",
+    iconId: "siliconflow",
+    description: "国产聚合平台，常见开源模型",
+    baseUrl: "https://api.siliconflow.cn/v1",
+    api: "openai-completions",
+    keyRequired: true,
+    keyPlaceholder: "sk-...",
+    defaultModels: ["deepseek-ai/DeepSeek-V3", "deepseek-ai/DeepSeek-R1", "Qwen/Qwen2.5-72B-Instruct"],
+  },
+  {
+    id: "moonshot",
+    name: "Kimi / Moonshot",
+    providerName: "moonshot",
+    iconId: "moonshot",
+    description: "Kimi 大上下文模型",
+    baseUrl: "https://api.moonshot.cn/v1",
+    api: "openai-completions",
+    keyRequired: true,
+    keyPlaceholder: "sk-...",
+    defaultModels: ["moonshot-v1-8k", "moonshot-v1-32k", "moonshot-v1-128k"],
+  },
+  {
+    id: "doubao",
+    name: "豆包",
+    providerName: "doubao",
+    iconId: "doubao",
+    description: "火山方舟 OpenAI 兼容接口",
+    baseUrl: "https://ark.cn-beijing.volces.com/api/v3",
+    api: "openai-completions",
+    keyRequired: true,
+    keyPlaceholder: "volc-...",
+    defaultModels: ["doubao-seed-1-6", "doubao-1-5-pro-32k", "doubao-1-5-lite-32k"],
+  },
+  {
+    id: "ollama",
+    name: "Ollama",
+    providerName: "ollama",
+    iconId: "ollama",
+    description: "本机模型，不需要 API Key",
+    baseUrl: "http://127.0.0.1:11434/v1",
+    api: "openai-completions",
+    keyRequired: false,
+    local: true,
+    keyPlaceholder: "本地模型可留空",
+    defaultModels: ["llama3.1", "qwen2.5", "deepseek-r1"],
+  },
+  {
+    id: "lmstudio",
+    name: "LM Studio",
+    providerName: "lmstudio",
+    iconId: "lmstudio",
+    description: "本机 OpenAI 兼容服务",
+    baseUrl: "http://127.0.0.1:1234/v1",
+    api: "openai-completions",
+    keyRequired: false,
+    local: true,
+    keyPlaceholder: "本地模型可留空",
+    defaultModels: ["local-model"],
+  },
+  {
+    id: "custom-openai",
+    name: "自定义兼容",
+    providerName: "custom-openai",
+    iconId: "openai",
+    description: "任意带 API Key 的 OpenAI 兼容地址",
+    baseUrl: "",
+    api: "openai-completions",
+    keyRequired: true,
+    keyPlaceholder: "请输入 API Key；无 Key 请选 Ollama 或 LM Studio",
+    defaultModels: [],
+  },
+];
 
 // ── Form field helpers ────────────────────────────────────────────────────────
 
@@ -1267,14 +1439,446 @@ function AddProviderPicker({
   );
 }
 
+// ── Easy model connection wizard ─────────────────────────────────────────────
+
+function coerceFetchedModels(value: unknown): FetchedModel[] {
+  if (!Array.isArray(value)) return [];
+  return value.flatMap((item) => {
+    if (typeof item === "string") return item.trim() ? [{ id: item.trim() }] : [];
+    if (!item || typeof item !== "object") return [];
+    const record = item as { id?: unknown; name?: unknown; ownedBy?: unknown; owned_by?: unknown };
+    if (typeof record.id !== "string" || !record.id.trim()) return [];
+    return [{
+      id: record.id.trim(),
+      name: typeof record.name === "string" ? record.name : undefined,
+      ownedBy: typeof record.ownedBy === "string" ? record.ownedBy : typeof record.owned_by === "string" ? record.owned_by : undefined,
+    }];
+  });
+}
+
+function mergeModelOptions(...groups: (FetchedModel[] | string[])[]): FetchedModel[] {
+  const seen = new Set<string>();
+  const merged: FetchedModel[] = [];
+  for (const group of groups) {
+    for (const item of group) {
+      const model = typeof item === "string" ? { id: item } : item;
+      const id = model.id.trim();
+      if (!id || seen.has(id)) continue;
+      seen.add(id);
+      merged.push({ ...model, id });
+    }
+  }
+  return merged;
+}
+
+function buildEasyModel(preset: EasyProviderPreset, modelId: string): ModelEntry {
+  const id = modelId.trim();
+  let model: ModelEntry = { id, name: id };
+  if (preset.id === "deepseek" && id.toLowerCase().includes("reasoner")) {
+    model = setDeepseekCompat({ ...model, reasoning: true }, true);
+  }
+  return model;
+}
+
+async function saveEasyApiKey(providerName: string, apiKey: string): Promise<string | null> {
+  const res = await fetch(`/api/auth/api-key/${encodeURIComponent(providerName)}`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ apiKey }),
+  });
+  const data = await res.json().catch(() => ({})) as { success?: boolean; error?: string };
+  if (!res.ok || data.error) return data.error ?? `HTTP ${res.status}`;
+  return null;
+}
+
+function EasyModelWizard({
+  config,
+  apiKeyProviders,
+  onApply,
+  onApiKeySaved,
+  saving,
+  savedOk,
+  saveError,
+  onOpenAdvanced,
+}: {
+  config: ModelsJson;
+  apiKeyProviders: ApiKeyProvider[];
+  onApply: (nextConfig: ModelsJson) => Promise<boolean>;
+  onApiKeySaved: () => void;
+  saving: boolean;
+  savedOk: boolean;
+  saveError: string | null;
+  onOpenAdvanced: () => void;
+}) {
+  const [selectedPresetId, setSelectedPresetId] = useState(EASY_PROVIDER_PRESETS[0]?.id ?? "custom-openai");
+  const [baseUrl, setBaseUrl] = useState("");
+  const [apiKey, setApiKey] = useState("");
+  const [modelOptions, setModelOptions] = useState<FetchedModel[]>([]);
+  const [selectedModelId, setSelectedModelId] = useState("");
+  const [manualModelId, setManualModelId] = useState("");
+  const [fetchState, setFetchState] = useState<FetchModelsState>({ phase: "idle" });
+  const [testState, setTestState] = useState<EasyTestState>({ phase: "idle" });
+  const [enableMessage, setEnableMessage] = useState<string | null>(null);
+  const [enableError, setEnableError] = useState<string | null>(null);
+  const initializedPresetRef = useRef<string | null>(null);
+
+  const preset = EASY_PROVIDER_PRESETS.find((p) => p.id === selectedPresetId) ?? EASY_PROVIDER_PRESETS[EASY_PROVIDER_PRESETS.length - 1];
+  const existingProvider = config.providers?.[preset.providerName];
+  const existingProviderApiKey = existingProvider?.apiKey?.trim() ?? "";
+  const inputApiKey = apiKey.trim();
+  const effectiveModelId = (manualModelId.trim() || selectedModelId.trim()).trim();
+  const hasStoredApiKey = apiKeyProviders.some((p) => p.configured && (p.id === preset.providerName || p.id === preset.id));
+  const hasExistingProviderApiKey = !!existingProviderApiKey;
+  const hasCredential = preset.local || !!inputApiKey || hasStoredApiKey || hasExistingProviderApiKey;
+  const keyMissing = preset.keyRequired && !hasCredential;
+  const requestApiKey = preset.local ? (inputApiKey || LOCAL_DUMMY_API_KEY) : (inputApiKey || existingProviderApiKey || undefined);
+  const baseUrlMissing = !baseUrl.trim();
+  const canFetchModels = !baseUrlMissing && !keyMissing && fetchState.phase !== "loading";
+  const canTest = !baseUrlMissing && !keyMissing && !!effectiveModelId && testState.phase !== "testing";
+  const canEnable = !baseUrlMissing && !keyMissing && !!effectiveModelId && !saving;
+
+  useEffect(() => {
+    if (initializedPresetRef.current === preset.id) return;
+    initializedPresetRef.current = preset.id;
+    const provider = config.providers?.[preset.providerName];
+    const existingModels = provider?.models?.map((m) => ({ id: m.id, name: m.name })) ?? [];
+    const merged = mergeModelOptions(existingModels, preset.defaultModels);
+    setBaseUrl(provider?.baseUrl ?? preset.baseUrl);
+    setApiKey(preset.local && provider?.apiKey !== LOCAL_DUMMY_API_KEY ? provider?.apiKey ?? "" : "");
+    setModelOptions(merged);
+    setSelectedModelId(merged[0]?.id ?? "");
+    setManualModelId("");
+    setFetchState({ phase: "idle" });
+    setTestState({ phase: "idle" });
+    setEnableMessage(null);
+    setEnableError(null);
+  }, [config.providers, preset]);
+
+  useEffect(() => {
+    setTestState({ phase: "idle" });
+    setEnableMessage(null);
+    setEnableError(null);
+  }, [selectedPresetId, baseUrl, apiKey, selectedModelId, manualModelId]);
+
+  const handleFetchModels = useCallback(async () => {
+    if (!canFetchModels) return;
+    setFetchState({ phase: "loading" });
+    try {
+      const res = await fetch("/api/models-config/fetch", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          providerId: preset.id,
+          baseUrl: baseUrl.trim(),
+          apiKey: requestApiKey,
+          api: preset.api,
+        }),
+      });
+      const data = await res.json() as {
+        ok?: boolean;
+        models?: FetchedModel[];
+        recommendedModel?: string;
+        candidates?: unknown;
+        message?: string;
+        error?: string;
+        hint?: string;
+      };
+      if (!res.ok || !data.ok) {
+        const hint = data.hint ?? (Array.isArray(data.candidates) && data.candidates.length > 0 ? `可尝试：${data.candidates.map(String).slice(0, 3).join("、")}` : undefined);
+        setFetchState({ phase: "error", message: data.error ?? `HTTP ${res.status}`, hint });
+        return;
+      }
+      const fetched = coerceFetchedModels(data.models);
+      const recommended = data.recommendedModel ? [{ id: data.recommendedModel }] : [];
+      const merged = mergeModelOptions(recommended, fetched, preset.defaultModels);
+      setModelOptions(merged);
+      setSelectedModelId(data.recommendedModel ?? merged[0]?.id ?? "");
+      setManualModelId("");
+      setFetchState({ phase: "success", message: data.message ?? (merged.length ? `找到 ${merged.length} 个模型` : "没有返回模型，可手动输入") });
+    } catch (e) {
+      setFetchState({ phase: "error", message: e instanceof Error ? e.message : String(e), hint: "检查网络、Base URL 和 API Key 后再试" });
+    }
+  }, [baseUrl, canFetchModels, preset, requestApiKey]);
+
+  const handleTest = useCallback(async () => {
+    if (!canTest) return;
+    const model = buildEasyModel(preset, effectiveModelId);
+    const provider: ProviderEntry = {
+      baseUrl: baseUrl.trim(),
+      api: preset.api,
+      apiKey: requestApiKey,
+      models: [model],
+    };
+    setTestState({ phase: "testing" });
+    try {
+      const res = await fetch("/api/models-config/test", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ providerName: preset.providerName, provider, model }),
+      });
+      const data = await res.json() as {
+        ok?: boolean;
+        error?: string;
+        hint?: string;
+        message?: string;
+        latencyMs?: number;
+        status?: number;
+        responseText?: string;
+      };
+      if (!res.ok || !data.ok) {
+        setTestState({
+          phase: "error",
+          message: data.error ?? data.message ?? `HTTP ${res.status}`,
+          hint: data.hint,
+          latencyMs: data.latencyMs,
+          status: data.status,
+        });
+        return;
+      }
+      const meta = [
+        data.latencyMs !== undefined ? `${data.latencyMs}ms` : null,
+        data.status !== undefined ? `HTTP ${data.status}` : null,
+      ].filter(Boolean).join(" · ");
+      setTestState({
+        phase: "success",
+        message: meta ? `连接成功 · ${meta}` : (data.message ?? "连接成功"),
+        latencyMs: data.latencyMs,
+        status: data.status,
+      });
+    } catch (e) {
+      setTestState({ phase: "error", message: e instanceof Error ? e.message : String(e), hint: "请确认服务地址可访问" });
+    }
+  }, [baseUrl, canTest, effectiveModelId, preset, requestApiKey]);
+
+  const handleEnable = useCallback(async () => {
+    if (!canEnable) {
+      if (baseUrlMissing) setEnableMessage("先填写 Base URL");
+      else if (keyMissing) setEnableMessage(preset.id === "custom-openai" ? "自定义兼容需要 API Key；无 Key 请选 Ollama 或 LM Studio。" : "先填写 API Key");
+      else setEnableMessage("先选择或手动输入模型");
+      return;
+    }
+    const keyToSave = preset.local ? "" : (inputApiKey || existingProviderApiKey);
+    if (keyToSave) {
+      const keyError = await saveEasyApiKey(preset.providerName, keyToSave);
+      if (keyError) {
+        setEnableError(`API Key 保存失败：${keyError}`);
+        return;
+      }
+      onApiKeySaved();
+    }
+    const model = buildEasyModel(preset, effectiveModelId);
+    const existingModels = existingProvider?.models ?? [];
+    const nextModels = [model, ...existingModels.filter((m) => m.id !== model.id)];
+    const existingProviderBase: ProviderEntry = { ...(existingProvider ?? {}) };
+    if (!preset.local) delete existingProviderBase.apiKey;
+    const nextProvider: ProviderEntry = {
+      ...existingProviderBase,
+      baseUrl: baseUrl.trim(),
+      api: preset.api,
+      models: nextModels,
+      ...(preset.local ? { apiKey: inputApiKey || existingProvider?.apiKey || LOCAL_DUMMY_API_KEY } : {}),
+    };
+    const nextConfig: ModelsJson = {
+      ...config,
+      providers: {
+        ...(config.providers ?? {}),
+        [preset.providerName]: nextProvider,
+      },
+    };
+    const ok = await onApply(nextConfig);
+    if (ok) setEnableMessage(`已启用 ${preset.name} · ${model.id}`);
+  }, [baseUrl, baseUrlMissing, canEnable, config, effectiveModelId, existingProvider, existingProviderApiKey, inputApiKey, keyMissing, onApiKeySaved, onApply, preset]);
+
+  const statusLine = (() => {
+    if (fetchState.phase === "loading") return "正在获取模型列表...";
+    if (testState.phase === "testing") return "正在测试连接...";
+    if (testState.phase === "success") return testState.message;
+    if (testState.phase === "error") return `${testState.message}${testState.hint ? ` · ${testState.hint}` : ""}`;
+    if (enableError) return enableError;
+    if (enableMessage) return enableMessage;
+    if (keyMissing && preset.id === "custom-openai") return "自定义兼容需要 API Key；无 Key 请选 Ollama 或 LM Studio。";
+    if (keyMissing) return "填写 API Key，或选择一个已经配置过的供应商。";
+    if (fetchState.phase === "success") return fetchState.message ?? "模型列表已更新";
+    if (fetchState.phase === "error") return `${fetchState.message}${fetchState.hint ? ` · ${fetchState.hint}` : ""}`;
+    return existingProvider ? "这个供应商已有配置，启用会更新地址、Key 和选中的模型。" : "按顺序完成后即可启用，无需重启服务。";
+  })();
+
+  const statusColor =
+    fetchState.phase === "error" || testState.phase === "error" || enableError || keyMissing ? "#ef4444" :
+    fetchState.phase === "success" || testState.phase === "success" || enableMessage ? "#16a34a" :
+    "var(--text-muted)";
+
+  return (
+    <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(min(360px, 100%), 1fr))", gap: 18, width: "100%", maxWidth: 980, margin: "0 auto" }}>
+      <div style={{ minWidth: 0 }}>
+        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12, marginBottom: 10 }}>
+          <div>
+            <div style={{ fontSize: 13, fontWeight: 700, color: "var(--text)" }}>选择供应商</div>
+            <div style={{ fontSize: 11, color: "var(--text-dim)", marginTop: 2 }}>先选一个最接近的服务</div>
+          </div>
+          <button
+            onClick={onOpenAdvanced}
+            style={{ padding: "5px 9px", border: "1px solid var(--border)", borderRadius: 6, background: "transparent", color: "var(--text-muted)", cursor: "pointer", fontSize: 11, whiteSpace: "nowrap" }}
+          >
+            高级配置
+          </button>
+        </div>
+
+        <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(min(145px, 100%), 1fr))", gap: 8 }}>
+          {EASY_PROVIDER_PRESETS.map((item) => {
+            const active = item.id === selectedPresetId;
+            return (
+              <button
+                key={item.id}
+                onClick={() => setSelectedPresetId(item.id)}
+                style={{
+                  minHeight: 68,
+                  padding: "9px 10px",
+                  border: `1px solid ${active ? "var(--accent)" : "var(--border)"}`,
+                  borderRadius: 8,
+                  background: active ? "var(--bg-selected)" : "var(--bg-panel)",
+                  color: "var(--text)",
+                  cursor: "pointer",
+                  textAlign: "left",
+                  display: "flex",
+                  alignItems: "flex-start",
+                  gap: 8,
+                  minWidth: 0,
+                  boxSizing: "border-box",
+                }}
+              >
+                <ProviderIcon id={item.iconId} size={22} />
+                <span style={{ minWidth: 0, display: "flex", flexDirection: "column", gap: 3 }}>
+                  <span style={{ fontSize: 12, fontWeight: 700, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{item.name}</span>
+                  <span style={{ fontSize: 10, color: "var(--text-dim)", lineHeight: 1.35, overflowWrap: "anywhere" }}>{item.description}</span>
+                </span>
+              </button>
+            );
+          })}
+        </div>
+      </div>
+
+      <div style={{ minWidth: 0, display: "flex", flexDirection: "column", gap: 14 }}>
+        <div style={{ display: "flex", alignItems: "center", gap: 10, minWidth: 0 }}>
+          <ProviderIcon id={preset.iconId} size={30} />
+          <div style={{ minWidth: 0 }}>
+            <div style={{ fontSize: 15, fontWeight: 800, color: "var(--text)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{preset.name}</div>
+            <div style={{ fontSize: 11, color: "var(--text-muted)", overflowWrap: "anywhere" }}>{preset.description}</div>
+          </div>
+        </div>
+
+        <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(min(260px, 100%), 1fr))", gap: 10 }}>
+          <Field label="Base URL">
+            <TextInput value={baseUrl} onChange={setBaseUrl} placeholder={preset.baseUrl || "https://api.example.com/v1"} mono />
+          </Field>
+          <Field label={preset.local ? "API Key（本地可留空）" : "API Key"}>
+            <SecretTextInput value={apiKey} onChange={setApiKey} placeholder={preset.keyPlaceholder} mono />
+          </Field>
+        </div>
+
+        <div style={{ display: "flex", gap: 8, flexWrap: "wrap", alignItems: "center" }}>
+          <button
+            onClick={handleFetchModels}
+            disabled={!canFetchModels}
+            style={{
+              padding: "7px 12px",
+              border: "none",
+              borderRadius: 7,
+              background: canFetchModels ? "var(--accent)" : "var(--bg-panel)",
+              color: canFetchModels ? "#fff" : "var(--text-dim)",
+              cursor: canFetchModels ? "pointer" : "not-allowed",
+              fontSize: 12,
+              fontWeight: 700,
+            }}
+          >
+            {fetchState.phase === "loading" ? "获取中..." : "获取模型"}
+          </button>
+          <span style={{ fontSize: 11, color: statusColor, lineHeight: 1.5, minWidth: 0, overflowWrap: "anywhere" }}>{statusLine}</span>
+        </div>
+
+        <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(min(240px, 100%), 1fr))", gap: 10 }}>
+          <Field label="选择模型">
+            <select
+              value={selectedModelId}
+              onChange={(e) => { setSelectedModelId(e.target.value); setManualModelId(""); }}
+              disabled={modelOptions.length === 0}
+              style={{ ...inputStyle, color: selectedModelId ? "var(--text)" : "var(--text-dim)" }}
+            >
+              {modelOptions.length === 0 ? (
+                <option value="">先获取模型，或手动输入</option>
+              ) : modelOptions.map((m) => (
+                <option key={m.id} value={m.id}>{m.name ? `${m.name} (${m.id})` : m.id}</option>
+              ))}
+            </select>
+          </Field>
+          <Field label="手动输入模型">
+            <TextInput value={manualModelId} onChange={setManualModelId} placeholder={selectedModelId || "例如 gpt-4.1-mini"} mono />
+          </Field>
+        </div>
+
+        <div style={{ border: "1px solid var(--border)", borderRadius: 8, padding: 12, background: "var(--bg-panel)", display: "flex", flexDirection: "column", gap: 10 }}>
+          <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10, flexWrap: "wrap" }}>
+            <div style={{ minWidth: 0 }}>
+              <div style={{ fontSize: 12, fontWeight: 700, color: "var(--text)" }}>准备启用</div>
+              <div style={{ fontSize: 11, color: "var(--text-dim)", marginTop: 2, overflowWrap: "anywhere" }}>
+                将写入 <code style={{ fontFamily: "var(--font-mono)" }}>{preset.providerName}</code>，模型 <code style={{ fontFamily: "var(--font-mono)" }}>{effectiveModelId || "未选择"}</code>
+              </div>
+            </div>
+            <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+              <button
+                onClick={handleTest}
+                disabled={!canTest}
+                style={{
+                  padding: "7px 12px",
+                  border: "1px solid var(--border)",
+                  borderRadius: 7,
+                  background: testState.phase === "success" ? "#16a34a" : "transparent",
+                  color: testState.phase === "success" ? "#fff" : canTest ? "var(--text)" : "var(--text-dim)",
+                  cursor: canTest ? "pointer" : "not-allowed",
+                  fontSize: 12,
+                  fontWeight: 700,
+                }}
+              >
+                {testState.phase === "testing" ? "测试中..." : testState.phase === "success" ? "测试通过" : "测试连接"}
+              </button>
+              <button
+                onClick={handleEnable}
+                disabled={!canEnable || savedOk}
+                style={{
+                  padding: "7px 14px",
+                  border: "none",
+                  borderRadius: 7,
+                  background: savedOk ? "#16a34a" : canEnable ? "var(--accent)" : "var(--bg)",
+                  color: savedOk || canEnable ? "#fff" : "var(--text-dim)",
+                  cursor: canEnable && !savedOk ? "pointer" : "not-allowed",
+                  fontSize: 12,
+                  fontWeight: 800,
+                }}
+              >
+                {savedOk ? "已启用" : saving ? "保存中..." : "启用"}
+              </button>
+            </div>
+          </div>
+          {(testState.phase === "success" || testState.phase === "error" || saveError || enableError || enableMessage) && (
+            <div style={{ fontSize: 11, color: saveError || enableError || testState.phase === "error" ? "#ef4444" : "#16a34a", lineHeight: 1.5, overflowWrap: "anywhere" }}>
+              {saveError ?? enableError ?? (testState.phase === "error" ? `${testState.message}${testState.hint ? ` · ${testState.hint}` : ""}` : testState.phase === "success" ? testState.message : enableMessage)}
+            </div>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
 // ── Main component ────────────────────────────────────────────────────────────
 
-export function ModelsConfig({ onClose }: { onClose: () => void }) {
+export function ModelsConfig({ onClose, onModelsChanged }: { onClose: () => void; onModelsChanged?: () => void }) {
   const [config, setConfig] = useState<ModelsJson>({ providers: {} });
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [saveError, setSaveError] = useState<string | null>(null);
   const [savedOk, setSavedOk] = useState(false);
+  const [mode, setMode] = useState<"easy" | "advanced">("easy");
   const [selection, setSelection] = useState<Selection | null>(null);
   const [oauthProviders, setOauthProviders] = useState<OAuthProvider[]>([]);
   const [apiKeyProviders, setApiKeyProviders] = useState<ApiKeyProvider[]>([]);
@@ -1293,6 +1897,16 @@ export function ModelsConfig({ onClose }: { onClose: () => void }) {
       .then((d: { providers: ApiKeyProvider[] }) => setApiKeyProviders(d.providers))
       .catch(() => {});
   }, []);
+
+  const refreshOAuthProviders = useCallback(() => {
+    loadOAuthProviders();
+    onModelsChanged?.();
+  }, [loadOAuthProviders, onModelsChanged]);
+
+  const refreshApiKeyProviders = useCallback(() => {
+    loadApiKeyProviders();
+    onModelsChanged?.();
+  }, [loadApiKeyProviders, onModelsChanged]);
 
   useEffect(() => {
     fetch("/api/models-config")
@@ -1382,7 +1996,7 @@ export function ModelsConfig({ onClose }: { onClose: () => void }) {
     setSelection({ type: "provider", name: providerName });
   }, []);
 
-  const handleSave = useCallback(async () => {
+  const saveConfig = useCallback(async (nextConfig: ModelsJson) => {
     setSaving(true);
     setSaveError(null);
     setSavedOk(false);
@@ -1390,17 +2004,29 @@ export function ModelsConfig({ onClose }: { onClose: () => void }) {
       const res = await fetch("/api/models-config", {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(config),
+        body: JSON.stringify(nextConfig),
       });
       const d = await res.json() as { success?: boolean; error?: string };
-      if (!res.ok || d.error) setSaveError(d.error ?? `HTTP ${res.status}`);
-      else { setSavedOk(true); setTimeout(() => setSavedOk(false), 2000); }
+      if (!res.ok || d.error) {
+        setSaveError(d.error ?? `HTTP ${res.status}`);
+        return false;
+      }
+      setConfig(nextConfig);
+      setSavedOk(true);
+      setTimeout(() => setSavedOk(false), 2000);
+      onModelsChanged?.();
+      return true;
     } catch (e) {
       setSaveError(String(e));
+      return false;
     } finally {
       setSaving(false);
     }
-  }, [config]);
+  }, [onModelsChanged]);
+
+  const handleSave = useCallback(() => {
+    void saveConfig(config);
+  }, [config, saveConfig]);
 
   const providers = Object.entries(config.providers ?? {});
   const activeOAuth = oauthProviders.filter((p) => p.loggedIn);
@@ -1412,12 +2038,12 @@ export function ModelsConfig({ onClose }: { onClose: () => void }) {
     if (selection.type === "oauth") {
       const p = oauthProviders.find((p) => p.id === selection.providerId);
       if (!p) return null;
-      return <OAuthDetail key={p.id} provider={p} onRefresh={loadOAuthProviders} />;
+      return <OAuthDetail key={p.id} provider={p} onRefresh={refreshOAuthProviders} />;
     }
     if (selection.type === "apikey") {
       const p = apiKeyProviders.find((p) => p.id === selection.providerId);
       if (!p) return null;
-      return <ApiKeyDetail key={p.id} provider={p} onRefresh={loadApiKeyProviders} />;
+      return <ApiKeyDetail key={p.id} provider={p} onRefresh={refreshApiKeyProviders} />;
     }
     if (selection.type === "provider") {
       const provider = config.providers?.[selection.name];
@@ -1450,20 +2076,67 @@ export function ModelsConfig({ onClose }: { onClose: () => void }) {
 
   return (
     <>
-    <div style={{ position: "fixed", inset: 0, zIndex: 1000, background: "rgba(0,0,0,0.35)", display: "flex", alignItems: "center", justifyContent: "center" }}
+    <div style={{ position: "fixed", inset: 0, zIndex: 1000, background: "rgba(0,0,0,0.35)", display: "flex", alignItems: "center", justifyContent: "center", padding: 12, boxSizing: "border-box" }}
       onClick={(e) => { if (e.target === e.currentTarget) onClose(); }}>
-      <div style={{ width: 860, height: "78vh", background: "var(--bg)", border: "1px solid var(--border)", borderRadius: 10, display: "flex", flexDirection: "column", boxShadow: "0 8px 32px rgba(0,0,0,0.18)", overflow: "hidden" }}>
+      <div style={{ width: "min(980px, 100%)", height: "min(84vh, calc(100vh - 24px))", background: "var(--bg)", border: "1px solid var(--border)", borderRadius: 10, display: "flex", flexDirection: "column", boxShadow: "0 8px 32px rgba(0,0,0,0.18)", overflow: "hidden" }}>
 
         {/* Header */}
-        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "12px 18px", borderBottom: "1px solid var(--border)", flexShrink: 0 }}>
-          <div style={{ display: "flex", alignItems: "baseline", gap: 10 }}>
-            <span style={{ fontSize: 15, fontWeight: 700, color: "var(--text)" }}>Models</span>
-            <code style={{ fontSize: 11, color: "var(--text-muted)", fontFamily: "var(--font-mono)" }}>~/.pi/agent/models.json</code>
+        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12, padding: "12px 18px", borderBottom: "1px solid var(--border)", flexShrink: 0, flexWrap: "wrap" }}>
+          <div style={{ display: "flex", alignItems: "baseline", gap: 10, minWidth: 0 }}>
+            <span style={{ fontSize: 15, fontWeight: 700, color: "var(--text)", whiteSpace: "nowrap" }}>连接模型</span>
+            <code style={{ fontSize: 11, color: "var(--text-muted)", fontFamily: "var(--font-mono)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>~/.pi/agent/models.json</code>
           </div>
-          <button onClick={onClose} style={{ background: "none", border: "none", color: "var(--text-muted)", cursor: "pointer", fontSize: 20, lineHeight: 1, padding: "2px 6px" }}>×</button>
+          <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap", justifyContent: "flex-end" }}>
+            <div style={{ display: "flex", alignItems: "center", border: "1px solid var(--border)", borderRadius: 7, padding: 2, background: "var(--bg-panel)" }}>
+              {(["easy", "advanced"] as const).map((item) => {
+                const active = mode === item;
+                return (
+                  <button
+                    key={item}
+                    onClick={() => setMode(item)}
+                    style={{
+                      minHeight: 28,
+                      padding: "0 10px",
+                      border: "none",
+                      borderRadius: 5,
+                      background: active ? "var(--accent)" : "transparent",
+                      color: active ? "#fff" : "var(--text-muted)",
+                      cursor: "pointer",
+                      fontSize: 12,
+                      fontWeight: active ? 700 : 500,
+                      whiteSpace: "nowrap",
+                    }}
+                  >
+                    {item === "easy" ? "小白模式" : "高级配置"}
+                  </button>
+                );
+              })}
+            </div>
+            <button onClick={onClose} style={{ background: "none", border: "none", color: "var(--text-muted)", cursor: "pointer", fontSize: 20, lineHeight: 1, padding: "2px 6px" }}>×</button>
+          </div>
         </div>
 
         {/* Body */}
+        {mode === "easy" ? (
+          <div style={{ flex: 1, overflowY: "auto", padding: 18 }}>
+            {loading ? (
+              <div style={{ height: "100%", display: "flex", alignItems: "center", justifyContent: "center", color: "var(--text-dim)", fontSize: 13 }}>
+                Loading...
+              </div>
+            ) : (
+              <EasyModelWizard
+                config={config}
+                apiKeyProviders={apiKeyProviders}
+                onApply={saveConfig}
+                onApiKeySaved={refreshApiKeyProviders}
+                saving={saving}
+                savedOk={savedOk}
+                saveError={saveError}
+                onOpenAdvanced={() => setMode("advanced")}
+              />
+            )}
+          </div>
+        ) : (
         <div style={{ flex: 1, display: "flex", overflow: "hidden" }}>
 
           {/* Left: tree */}
@@ -1594,33 +2267,36 @@ export function ModelsConfig({ onClose }: { onClose: () => void }) {
             )}
           </div>
         </div>
+        )}
 
         {/* Footer */}
-        <div style={{ display: "flex", alignItems: "center", justifyContent: "flex-end", gap: 10, padding: "10px 18px", borderTop: "1px solid var(--border)", flexShrink: 0 }}>
+        <div style={{ display: "flex", alignItems: "center", justifyContent: "flex-end", gap: 10, padding: "10px 18px", borderTop: "1px solid var(--border)", flexShrink: 0, flexWrap: "wrap" }}>
           {saveError && <span style={{ fontSize: 12, color: "#f87171", flex: 1 }}>{saveError}</span>}
           <button onClick={onClose} style={{ padding: "6px 14px", background: "none", border: "1px solid var(--border)", borderRadius: 6, color: "var(--text-muted)", cursor: "pointer", fontSize: 13 }}>
-            Cancel
+            {mode === "easy" ? "关闭" : "Cancel"}
           </button>
-          <button onClick={handleSave} disabled={saving || savedOk} style={{
-            position: "relative",
-            padding: "6px 16px",
-            minWidth: 92,
-            background: savedOk ? "#16a34a" : saving ? "var(--bg-panel)" : "var(--accent)",
-            border: "none", borderRadius: 6,
-            color: savedOk ? "#fff" : saving ? "var(--text-muted)" : "#fff",
-            cursor: (saving || savedOk) ? "default" : "pointer", fontSize: 13, fontWeight: 600,
-            display: "inline-flex", alignItems: "center", justifyContent: "center", gap: 6,
-            transition: "background-color 0.2s ease, color 0.2s ease",
-            animation: savedOk ? "saved-pop 0.45s ease" : undefined,
-          }}>
-            {savedOk && (
-              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round"
-                style={{ strokeDasharray: 18, animation: "saved-check-draw 0.35s ease forwards", flexShrink: 0 }}>
-                <polyline points="20 6 9 17 4 12" />
-              </svg>
-            )}
-            <span>{savedOk ? "Saved" : saving ? "Saving…" : "Save"}</span>
-          </button>
+          {mode === "advanced" && (
+            <button onClick={handleSave} disabled={saving || savedOk} style={{
+              position: "relative",
+              padding: "6px 16px",
+              minWidth: 92,
+              background: savedOk ? "#16a34a" : saving ? "var(--bg-panel)" : "var(--accent)",
+              border: "none", borderRadius: 6,
+              color: savedOk ? "#fff" : saving ? "var(--text-muted)" : "#fff",
+              cursor: (saving || savedOk) ? "default" : "pointer", fontSize: 13, fontWeight: 600,
+              display: "inline-flex", alignItems: "center", justifyContent: "center", gap: 6,
+              transition: "background-color 0.2s ease, color 0.2s ease",
+              animation: savedOk ? "saved-pop 0.45s ease" : undefined,
+            }}>
+              {savedOk && (
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round"
+                  style={{ strokeDasharray: 18, animation: "saved-check-draw 0.35s ease forwards", flexShrink: 0 }}>
+                  <polyline points="20 6 9 17 4 12" />
+                </svg>
+              )}
+              <span>{savedOk ? "Saved" : saving ? "Saving…" : "Save"}</span>
+            </button>
+          )}
         </div>
       </div>
     </div>

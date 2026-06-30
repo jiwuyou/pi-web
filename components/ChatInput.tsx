@@ -88,6 +88,7 @@ type SlashCommandPaletteItem = SlashCommandInfo | {
 };
 
 type SlashCommandSource = SlashCommandPaletteItem["source"];
+type QueuedDraft = { id: string; text: string; images: AttachedImage[] };
 
 const BUILTIN_SLASH_COMMANDS: SlashCommandPaletteItem[] = [
   { name: "compact", description: "Compress context, optionally with instructions", source: "builtin" },
@@ -140,6 +141,8 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
   const [attachedImages, setAttachedImages] = useState<AttachedImage[]>([]);
   const [slashMenuOpen, setSlashMenuOpen] = useState(false);
   const [slashActiveIndex, setSlashActiveIndex] = useState(0);
+  const [advancedControlsOpen, setAdvancedControlsOpen] = useState(false);
+  const [queuedDrafts, setQueuedDrafts] = useState<QueuedDraft[]>([]);
 
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const dropdownRef = useRef<HTMLDivElement>(null);
@@ -151,6 +154,7 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
   const lastCompositionEndAtRef = useRef(0);
   const slashCommandsRequestedRef = useRef(false);
   const slashItemRefs = useRef<Array<HTMLButtonElement | null>>([]);
+  const idleQueueFlushedRef = useRef(false);
 
   useImperativeHandle(ref, () => ({
     insertIfEmpty(text: string) {
@@ -238,6 +242,18 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
     }
   }, [clearImages]);
 
+  const clearQueuedInput = useCallback(() => {
+    setValue("");
+    setAttachedImages([]);
+    if (textareaRef.current) {
+      textareaRef.current.style.height = "auto";
+    }
+  }, []);
+
+  const releaseQueuedDraftImages = useCallback((draft: QueuedDraft) => {
+    draft.images.forEach((img) => URL.revokeObjectURL(img.previewUrl));
+  }, []);
+
   const handleSend = useCallback(async () => {
     const msg = value.trim();
     if (!msg && !attachedImages.length) return;
@@ -306,10 +322,51 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
     });
   }, []);
 
+  const dispatchQueuedDraft = useCallback(async (draft: QueuedDraft, mode: "normal" | "steer") => {
+    const images = draft.images.length ? draft.images : undefined;
+    try {
+      if (mode === "steer") {
+        if (draft.text.startsWith("/") && onPromptWithStreamingBehavior) {
+          onPromptWithStreamingBehavior(draft.text, "steer", images);
+        } else {
+          onSteer?.(draft.text, images);
+        }
+        return;
+      }
+
+      if (!draft.images.length && draft.text.startsWith("/") && onBuiltinCommand) {
+        const result = await onBuiltinCommand(draft.text);
+        if (result.handled) return;
+      }
+      onSend(draft.text, images);
+    } finally {
+      releaseQueuedDraftImages(draft);
+    }
+  }, [onBuiltinCommand, onPromptWithStreamingBehavior, onSend, onSteer, releaseQueuedDraftImages]);
+
+  const promoteQueuedDraft = useCallback((id: string) => {
+    let selected: QueuedDraft | undefined;
+    setQueuedDrafts((prev) => {
+      selected = prev.find((item) => item.id === id);
+      return prev.filter((item) => item.id !== id);
+    });
+    if (selected) void dispatchQueuedDraft(selected, "steer");
+  }, [dispatchQueuedDraft]);
+
   const sendQueued = useCallback((mode: "steer" | "followup") => {
     const msg = value.trim();
     if (!msg && !attachedImages.length) return;
     const streamingBehavior = mode === "steer" ? "steer" : "followUp";
+    const queuedDraft = {
+      id: `${Date.now()}-${Math.random().toString(36).slice(2)}`,
+      text: msg,
+      images: attachedImages.map((img) => ({ ...img })),
+    };
+    if (mode === "followup" && onFollowUp) {
+      setQueuedDrafts((prev) => [...prev, queuedDraft]);
+      clearQueuedInput();
+      return;
+    }
     if (msg.startsWith("/") && onPromptWithStreamingBehavior) {
       onPromptWithStreamingBehavior(msg, streamingBehavior, attachedImages.length ? attachedImages : undefined);
       setValue("");
@@ -319,13 +376,11 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
     }
     if (mode === "steer" && onSteer) {
       onSteer(msg, attachedImages.length ? attachedImages : undefined);
-    } else if (mode === "followup" && onFollowUp) {
-      onFollowUp(msg, attachedImages.length ? attachedImages : undefined);
     }
     setValue("");
     clearImages();
     if (textareaRef.current) textareaRef.current.style.height = "auto";
-  }, [value, attachedImages, onPromptWithStreamingBehavior, onSteer, onFollowUp, clearImages]);
+  }, [value, attachedImages, onPromptWithStreamingBehavior, onSteer, onFollowUp, clearImages, clearQueuedInput]);
 
   const getNextSlashIndex = useCallback((direction: "up" | "down" | "left" | "right") => {
     const lastIndex = filteredSlashCommands.length - 1;
@@ -420,8 +475,7 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
       if (e.key === "Enter" && !e.shiftKey) {
         e.preventDefault();
         if (isStreaming && (onSteer || onFollowUp)) {
-          // Default Enter sends as steer if available, else followup
-          sendQueued(onSteer ? "steer" : "followup");
+          sendQueued(onFollowUp ? "followup" : "steer");
         } else {
           handleSend();
         }
@@ -429,6 +483,19 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
     },
     [isStreaming, onSteer, onFollowUp, slashMenuOpen, slashQuery, filteredSlashCommands, slashActiveIndex, applySlashCommand, sendQueued, handleSend, getNextSlashIndex]
   );
+
+  useEffect(() => {
+    if (isStreaming) {
+      idleQueueFlushedRef.current = false;
+      return;
+    }
+    if (idleQueueFlushedRef.current) return;
+    const next = queuedDrafts[0];
+    if (!next) return;
+    idleQueueFlushedRef.current = true;
+    setQueuedDrafts((prev) => prev.slice(1));
+    void dispatchQueuedDraft(next, "normal");
+  }, [isStreaming, queuedDrafts, dispatchQueuedDraft]);
 
   const handleInput = useCallback(() => {
     const ta = textareaRef.current;
@@ -512,6 +579,12 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
   const compactResultText = compactResult
     ? `${compactVerb} ${formatTokenCount(compactResult.tokensBefore)} -> ${formatTokenCount(compactResult.estimatedTokensAfter)} tokens (${formatTokenCount(compactSavedTokens)} saved)`
     : null;
+  const advancedControlsActive = !isStreaming && (
+    (thinkingLevel ?? "auto") !== "auto" ||
+    (toolPreset ?? "default") !== "default" ||
+    isCompacting ||
+    !!compactError
+  );
 
   // Close dropdowns on outside click
   useEffect(() => {
@@ -532,6 +605,10 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
     document.addEventListener("mousedown", handler);
     return () => document.removeEventListener("mousedown", handler);
   }, []);
+
+  useEffect(() => {
+    if (isStreaming) setAdvancedControlsOpen(false);
+  }, [isStreaming]);
 
 
 
@@ -747,6 +824,75 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
               </div>
             </div>
           )}
+          {isStreaming && (onSteer || onFollowUp) && (
+            <div
+              style={{
+                marginBottom: 8,
+                display: "flex",
+                flexDirection: "column",
+                gap: 6,
+                color: "var(--text-muted)",
+                fontSize: 12,
+                lineHeight: 1.45,
+              }}
+            >
+              <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10 }}>
+                <span>当前任务运行中，发送会进入待处理；需要立刻改方向可插队。</span>
+                {queuedDrafts.length > 0 && (
+                  <span style={{ flexShrink: 0, color: "var(--accent)", fontWeight: 600 }}>
+                    待处理 {queuedDrafts.length}
+                  </span>
+                )}
+              </div>
+              {queuedDrafts.length > 0 && (
+                <div style={{ display: "flex", flexDirection: "column", gap: 5 }}>
+                  {queuedDrafts.slice(-3).map((item) => {
+                    const text = item.text || (item.images.length ? `${item.images.length} 张图片` : "消息");
+                    return (
+                      <div
+                        key={item.id}
+                        style={{
+                          display: "flex",
+                          alignItems: "center",
+                          gap: 7,
+                          minHeight: 28,
+                          padding: "5px 9px",
+                          border: "1px solid color-mix(in srgb, var(--accent) 22%, transparent)",
+                          borderRadius: 999,
+                          background: "color-mix(in srgb, var(--accent) 8%, transparent)",
+                          color: "var(--text)",
+                          overflow: "hidden",
+                        }}
+                      >
+                        <span style={{ width: 6, height: 6, borderRadius: "50%", background: "var(--accent)", flexShrink: 0 }} />
+                        <span style={{ flex: 1, minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                          {text}
+                        </span>
+                        <button
+                          type="button"
+                          onClick={() => promoteQueuedDraft(item.id)}
+                          style={{
+                            flexShrink: 0,
+                            border: "1px solid rgba(234,179,8,0.35)",
+                            borderRadius: 999,
+                            background: "rgba(234,179,8,0.12)",
+                            color: "rgba(180,130,0,1)",
+                            cursor: "pointer",
+                            fontSize: 11,
+                            fontWeight: 600,
+                            padding: "3px 8px",
+                            lineHeight: 1.2,
+                          }}
+                        >
+                          插队
+                        </button>
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
+            </div>
+          )}
           <div
             style={{
               display: "flex",
@@ -778,9 +924,9 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
             onPaste={handlePaste}
             placeholder={
               isStreaming && (onSteer || onFollowUp)
-                ? "Steer 立即注入 / Follow-up 排队…"
+                ? "输入后发送到待处理…"
                 : isStreaming ? "Agent is running…"
-                : "Message… Type / for commands"
+                : "直接问 Pi，或输入 / 使用命令"
             }
             rows={1}
             style={{
@@ -801,11 +947,34 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
 
           {isStreaming ? (
             <div style={{ display: "flex", alignItems: "center", gap: 6, flexShrink: 0, alignSelf: "flex-end" }}>
-              {onSteer && (
+              {(onFollowUp || onSteer) && (
+                <button
+                  onClick={() => sendQueued(onFollowUp ? "followup" : "steer")}
+                  disabled={!value.trim() && !attachedImages.length}
+                  title={onFollowUp ? "加入待处理队列" : "立即插队发送"}
+                  style={{
+                    display: "flex", alignItems: "center", gap: 5,
+                    padding: "7px 14px",
+                    background: (value.trim() || attachedImages.length) ? "var(--accent)" : "var(--bg-panel)",
+                    border: "none",
+                    borderRadius: 8,
+                    color: (value.trim() || attachedImages.length) ? "#fff" : "var(--text-dim)",
+                    cursor: (value.trim() || attachedImages.length) ? "pointer" : "not-allowed",
+                    fontSize: 13, fontWeight: 600, letterSpacing: 0,
+                    transition: "background 0.12s",
+                  }}
+                >
+                  <svg width="12" height="12" viewBox="0 0 10 10" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+                    <path d="M5 1 L9 5 L5 9" /><line x1="1" y1="5" x2="9" y2="5" />
+                  </svg>
+                  发送
+                </button>
+              )}
+              {onSteer && onFollowUp && (
                 <button
                   onClick={() => sendQueued("steer")}
                   disabled={!value.trim() && !attachedImages.length}
-                  title="打断 Agent 当前运行，立即注入消息"
+                  title="立即插队，尽快影响当前任务"
                   style={{
                     display: "flex", alignItems: "center", gap: 5,
                     padding: "7px 12px",
@@ -814,30 +983,7 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
                     borderRadius: 8,
                     color: (value.trim() || attachedImages.length) ? "rgba(180,130,0,1)" : "var(--text-dim)",
                     cursor: (value.trim() || attachedImages.length) ? "pointer" : "not-allowed",
-                    fontSize: 13, fontWeight: 600, letterSpacing: "-0.01em",
-                    transition: "background 0.12s",
-                  }}
-                >
-                  <svg width="12" height="12" viewBox="0 0 10 10" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
-                    <path d="M5 1 L9 5 L5 9" /><line x1="1" y1="5" x2="9" y2="5" />
-                  </svg>
-                  Steer
-                </button>
-              )}
-              {onFollowUp && (
-                <button
-                  onClick={() => sendQueued("followup")}
-                  disabled={!value.trim() && !attachedImages.length}
-                  title="在 Agent 完成后排队发送"
-                  style={{
-                    display: "flex", alignItems: "center", gap: 5,
-                    padding: "7px 12px",
-                    background: (value.trim() || attachedImages.length) ? "rgba(129,140,248,0.12)" : "none",
-                    border: "1px solid rgba(129,140,248,0.35)",
-                    borderRadius: 8,
-                    color: (value.trim() || attachedImages.length) ? "rgba(99,102,241,1)" : "var(--text-dim)",
-                    cursor: (value.trim() || attachedImages.length) ? "pointer" : "not-allowed",
-                    fontSize: 13, fontWeight: 600, letterSpacing: "-0.01em",
+                    fontSize: 13, fontWeight: 600, letterSpacing: 0,
                     transition: "background 0.12s",
                   }}
                 >
@@ -845,7 +991,7 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
                     <line x1="5" y1="1" x2="5" y2="6" /><polyline points="2.5 3.5 5 1 7.5 3.5" />
                     <line x1="2" y1="9" x2="8" y2="9" />
                   </svg>
-                  Follow-up
+                  插队
                 </button>
               )}
             </div>
@@ -1023,7 +1169,41 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
 
           {/* RIGHT: thinking + tools preset + compact + sound (idle) | Stop + sound (streaming) */}
           <div style={{ flex: "0 0 auto", display: "flex", alignItems: "center", gap: 2, marginLeft: "auto" }}>
-            {!isStreaming && onThinkingLevelChange && (
+            {!isStreaming && (onThinkingLevelChange || onToolPresetChange || onCompact) && (
+              <button
+                type="button"
+                onClick={() => setAdvancedControlsOpen((v) => !v)}
+                title="高级控制"
+                style={{
+                  display: "flex", alignItems: "center", gap: 5,
+                  padding: "8px 12px",
+                  height: 32,
+                  background: advancedControlsOpen ? "var(--bg-hover)" : "none",
+                  border: "none",
+                  borderRadius: 9,
+                  color: advancedControlsActive ? "var(--accent)" : "var(--text-muted)",
+                  cursor: "pointer",
+                  fontSize: 12,
+                  transition: "background 0.12s, color 0.12s",
+                }}
+                onMouseEnter={(e) => {
+                  e.currentTarget.style.background = "var(--bg-hover)";
+                  e.currentTarget.style.color = advancedControlsActive ? "var(--accent)" : "var(--text)";
+                }}
+                onMouseLeave={(e) => {
+                  e.currentTarget.style.background = advancedControlsOpen ? "var(--bg-hover)" : "none";
+                  e.currentTarget.style.color = advancedControlsActive ? "var(--accent)" : "var(--text-muted)";
+                }}
+              >
+                <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                  <circle cx="12" cy="12" r="3" />
+                  <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 1 1-4 0v-.09a1.65 1.65 0 0 0-1-1.51 1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.6 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 1 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 8.92 4a1.65 1.65 0 0 0 1-1.51V2a2 2 0 1 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 1 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z" />
+                </svg>
+                <span>Controls</span>
+              </button>
+            )}
+
+            {advancedControlsOpen && !isStreaming && onThinkingLevelChange && (
               <div ref={thinkingDropdownRef} style={{ position: "relative" }}>
                 <button
                   onClick={() => !isStreaming && setThinkingDropdownOpen((v) => !v)}
@@ -1113,7 +1293,7 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
                 )}
               </div>
             )}
-            {!isStreaming && onToolPresetChange && (
+            {advancedControlsOpen && !isStreaming && onToolPresetChange && (
               <div ref={toolDropdownRef} style={{ position: "relative" }}>
                 <button
                   onClick={() => !isStreaming && setToolDropdownOpen((v) => !v)}
@@ -1188,7 +1368,7 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
               </div>
             )}
 
-            {!isStreaming && onCompact && (
+            {advancedControlsOpen && !isStreaming && onCompact && (
               <div style={{ position: "relative" }}>
                 {compactError && (
                   <div style={{
