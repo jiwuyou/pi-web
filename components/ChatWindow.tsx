@@ -22,31 +22,32 @@ interface Props {
   onSystemPromptChange?: (prompt: string | null) => void;
   onSessionStatsChange?: (stats: SessionStatsInfo | null) => void;
   onSessionStatsPanelOpen?: () => void;
+  onOpenModelsConfig?: () => void;
   onContextUsageChange?: (usage: { percent: number | null; contextWindow: number; tokens: number | null } | null) => void;
 }
 
 function phaseLabel(phase: AgentPhase): string {
   if (phase?.kind === "running_tools") {
     const names = phase.tools.map((t) => t.name);
-    if (names.length === 0) return "Running tool...";
-    if (names.length === 1) return `Running ${names[0]}...`;
-    if (names.length <= 3) return `Running ${names.join(", ")}...`;
-    return `Running ${names.slice(0, 2).join(", ")} (+${names.length - 2})...`;
+    if (names.length === 0) return "正在运行工具...";
+    if (names.length === 1) return `正在运行 ${names[0]}...`;
+    if (names.length <= 3) return `正在运行 ${names.join(", ")}...`;
+    return `正在运行 ${names.slice(0, 2).join(", ")}（另 ${names.length - 2} 个）...`;
   }
-  if (phase?.kind === "waiting_model") return "Waiting for model...";
-  if (phase?.kind === "running_command") return "Running command...";
-  return "Thinking...";
+  if (phase?.kind === "waiting_model") return "等待模型回复...";
+  if (phase?.kind === "running_command") return "正在执行命令...";
+  return "正在思考...";
 }
 
 const TYPEWRITER_PHRASES = [
   "直接问，也可以先选一个任务。",
   "帮你读代码、改代码、跑验证。",
   "把项目里的复杂问题说清楚。",
-  "explore your codebase.",
-  "pair-program with me.",
-  "fix that bug.",
-  "review my pull request.",
-  "ship it.",
+  "浏览并理解整个代码库。",
+  "一起完成一次改动。",
+  "定位并修复一个问题。",
+  "审查当前改动风险。",
+  "把功能做到可验证。",
 ];
 
 const QUICK_START_ACTIONS = [
@@ -120,7 +121,7 @@ function Typewriter({ phrases }: { phrases: string[] }) {
   );
 }
 
-export function ChatWindow({ session, newSessionCwd, onAgentEnd, onSessionCreated, onSessionForked, modelsRefreshKey, chatInputRef, onBranchDataChange, onSystemPromptChange, onSessionStatsChange, onSessionStatsPanelOpen, onContextUsageChange }: Props) {
+export function ChatWindow({ session, newSessionCwd, onAgentEnd, onSessionCreated, onSessionForked, modelsRefreshKey, chatInputRef, onBranchDataChange, onSystemPromptChange, onSessionStatsChange, onSessionStatsPanelOpen, onOpenModelsConfig, onContextUsageChange }: Props) {
   const {
     loading, error, messages, entryIds, streamState,
     agentRunning, modelNames, modelList, modelThinkingLevels, modelThinkingLevelMaps, toolPreset, thinkingLevel,
@@ -233,6 +234,7 @@ export function ChatWindow({ session, newSessionCwd, onAgentEnd, onSessionCreate
       modelNames={modelNames}
       modelList={modelList}
       onModelChange={handleModelChange}
+      onOpenModelsConfig={onOpenModelsConfig}
       onCompact={session || isNew ? handleCompact : undefined}
       onAbortCompaction={handleAbortCompaction}
       isCompacting={isCompacting}
@@ -260,7 +262,7 @@ export function ChatWindow({ session, newSessionCwd, onAgentEnd, onSessionCreate
   if (loading) {
     return (
       <div className="flex h-full items-center justify-center text-text-muted">
-        Loading session...
+        正在加载会话...
       </div>
     );
   }
@@ -718,7 +720,7 @@ function ExtensionDialog({
       >
         <div style={{ padding: "12px 14px", borderBottom: "1px solid var(--border)" }}>
           <div style={{ color: "var(--text)", fontSize: 14, fontWeight: 650 }}>{request.title}</div>
-          <div style={{ marginTop: 3, color: "var(--text-dim)", fontSize: 11, fontFamily: "var(--font-mono)" }}>extension request</div>
+          <div style={{ marginTop: 3, color: "var(--text-dim)", fontSize: 11, fontFamily: "var(--font-mono)" }}>扩展请求</div>
         </div>
 
         <div style={{ padding: 14 }}>
@@ -809,7 +811,7 @@ function ExtensionDialog({
               cursor: "pointer",
             }}
           >
-            Cancel
+            取消
           </button>
           {request.method === "confirm" ? (
             <button
@@ -823,7 +825,7 @@ function ExtensionDialog({
                 cursor: "pointer",
               }}
             >
-              Confirm
+              确认
             </button>
           ) : request.method !== "select" ? (
             <button
@@ -837,7 +839,7 @@ function ExtensionDialog({
                 cursor: "pointer",
               }}
             >
-              Submit
+              提交
             </button>
           ) : null}
         </div>
