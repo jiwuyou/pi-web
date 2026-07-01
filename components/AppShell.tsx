@@ -145,10 +145,11 @@ export function AppShell() {
     chatInputRef.current?.insertText("`" + relativePath + "`");
   }, []);
 
-  const [initialSessionId] = useState<string | null>(() => searchParams.get("session"));
+  const initialSessionParam = searchParams?.get("session") ?? null;
+  const [initialSessionId] = useState<string | null>(() => initialSessionParam);
   const [activeCwd, setActiveCwd] = useState<string | null>(null);
   // True once the initial ?session= URL param has been resolved (or confirmed absent)
-  const [initialSessionRestored, setInitialSessionRestored] = useState<boolean>(() => !searchParams.get("session"));
+  const [initialSessionRestored, setInitialSessionRestored] = useState<boolean>(() => !initialSessionParam);
   // Suppresses sessionKey bump in handleCwdChange during the initial URL restore
   const suppressCwdBumpRef = useRef(false);
 
@@ -426,7 +427,7 @@ export function AppShell() {
         }
       }
     `}</style>
-    <div style={{ display: "flex", height: "100dvh", overflow: "hidden", background: "var(--bg)" }}>
+    <div style={{ display: "flex", height: "100%", minHeight: "100vh", overflow: "hidden", background: "var(--bg)" }}>
       {/* Mobile overlay backdrop */}
       <div
         className="sidebar-overlay-backdrop"

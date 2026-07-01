@@ -28,7 +28,7 @@ export default function RootLayout({
           }}
         />
       </head>
-      <body style={{ height: "100dvh", display: "flex", flexDirection: "column" }}>
+      <body style={{ height: "100%", minHeight: "100vh", display: "flex", flexDirection: "column" }}>
         {children}
       </body>
     </html>
