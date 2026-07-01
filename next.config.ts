@@ -1,6 +1,10 @@
 import type { NextConfig } from "next";
 import { readFileSync } from "fs";
+import { dirname } from "path";
 import { join } from "path";
+import { fileURLToPath } from "url";
+
+const __dirname = dirname(fileURLToPath(import.meta.url));
 
 const { version } = JSON.parse(readFileSync(join(__dirname, "package.json"), "utf8")) as { version: string };
 let piVersion = "unknown";
