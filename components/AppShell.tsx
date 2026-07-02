@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useCallback, useRef, useEffect } from "react";
+import { useState, useCallback, useRef, useEffect, type ComponentType } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { SessionSidebar } from "./SessionSidebar";
 import { ChatWindow } from "./ChatWindow";
@@ -15,6 +15,43 @@ import type { ChatInputHandle } from "./ChatInput";
 import type { SessionStatsInfo } from "@/lib/pi-types";
 
 type SessionCopyField = "file" | "id";
+
+type ModelConfigStatus = {
+  hasUsableModel?: boolean;
+  modelCount?: number;
+  defaultModel?: { provider?: string; modelId?: string } | null;
+  missingReasons?: string[];
+};
+
+type OpenHouseFirstConfigState = {
+  started: boolean;
+  completed: boolean;
+  startedAt?: string;
+  completedAt?: string;
+  updatedAt?: string;
+};
+
+type OpenHouseFirstConfigResponse = {
+  state?: OpenHouseFirstConfigState;
+  prompt?: string;
+  error?: string;
+};
+
+type InitialPromptLaunch = {
+  key: string;
+  prompt: string;
+};
+
+type ModelsConfigFlowProps = {
+  onClose: () => void;
+  onModelsChanged?: () => void;
+  initialNoModelMode?: boolean;
+  onAddAppAndStartChat?: () => void | Promise<void>;
+  canAddAppAndStartChat?: boolean;
+  addAppAndStartChatDisabledReason?: string;
+};
+
+const ModelsConfigWithFlow = ModelsConfig as ComponentType<ModelsConfigFlowProps>;
 
 function copyText(text: string): Promise<void> {
   if (navigator.clipboard?.writeText) {
@@ -47,6 +84,13 @@ export function AppShell() {
   const [explorerRefreshKey, setExplorerRefreshKey] = useState(0);
   const [modelsConfigOpen, setModelsConfigOpen] = useState(false);
   const [modelsRefreshKey, setModelsRefreshKey] = useState(0);
+  const [modelConfigStatus, setModelConfigStatus] = useState<ModelConfigStatus | null>(null);
+  const [modelConfigStatusError, setModelConfigStatusError] = useState<string | null>(null);
+  const [noModelConfigDismissed, setNoModelConfigDismissed] = useState(false);
+  const [openHouseFirstConfigState, setOpenHouseFirstConfigState] = useState<OpenHouseFirstConfigState | null>(null);
+  const [openHouseFirstConfigError, setOpenHouseFirstConfigError] = useState<string | null>(null);
+  const [openHouseFirstConfigStarting, setOpenHouseFirstConfigStarting] = useState(false);
+  const [openHouseInitialPrompt, setOpenHouseInitialPrompt] = useState<InitialPromptLaunch | null>(null);
   const [skillsConfigOpen, setSkillsConfigOpen] = useState(false);
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const chatInputRef = useRef<ChatInputHandle | null>(null);
@@ -236,14 +280,134 @@ export function AppShell() {
     setInitialSessionRestored(true);
   }, []);
 
+  const refreshModelConfigStatus = useCallback(async () => {
+    try {
+      const res = await fetch("/api/models-config/status", { cache: "no-store" });
+      if (!res.ok) {
+        setModelConfigStatus(null);
+        setModelConfigStatusError("无法确认模型配置状态，请保存配置后重试。");
+        return null;
+      }
+      const status = await res.json() as ModelConfigStatus;
+      setModelConfigStatus(status);
+      setModelConfigStatusError(null);
+      return status;
+    } catch {
+      setModelConfigStatus(null);
+      setModelConfigStatusError("无法连接模型配置状态接口，请稍后重试。");
+      return null;
+    }
+  }, []);
+
+  useEffect(() => {
+    void refreshModelConfigStatus();
+  }, [modelsRefreshKey, refreshModelConfigStatus]);
+
+  useEffect(() => {
+    if (modelConfigStatus?.hasUsableModel === true) {
+      setNoModelConfigDismissed(false);
+    }
+  }, [modelConfigStatus?.hasUsableModel]);
+
+  useEffect(() => {
+    if (modelConfigStatus?.hasUsableModel !== false) return;
+    if (modelsConfigOpen || noModelConfigDismissed) return;
+    setModelsConfigOpen(true);
+  }, [modelConfigStatus?.hasUsableModel, modelsConfigOpen, noModelConfigDismissed]);
+
+  const refreshOpenHouseFirstConfigState = useCallback(async () => {
+    try {
+      const res = await fetch("/api/openhouse-first-config", { cache: "no-store" });
+      if (!res.ok) {
+        setOpenHouseFirstConfigError("无法读取 OpenHouse 首次配置状态。");
+        return null;
+      }
+      const data = await res.json() as OpenHouseFirstConfigResponse;
+      const state = data.state ?? null;
+      setOpenHouseFirstConfigState(state);
+      setOpenHouseFirstConfigError(null);
+      return state;
+    } catch {
+      setOpenHouseFirstConfigError("无法连接 OpenHouse 首次配置状态接口。");
+      return null;
+    }
+  }, []);
+
+  useEffect(() => {
+    if (modelConfigStatus?.hasUsableModel !== true) return;
+    void refreshOpenHouseFirstConfigState();
+  }, [modelConfigStatus?.hasUsableModel, refreshOpenHouseFirstConfigState]);
+
+  const handleOpenModelsConfig = useCallback(() => {
+    setModelsConfigOpen(true);
+  }, []);
+
   const handleModelsChanged = useCallback(() => {
     setModelsRefreshKey((k) => k + 1);
   }, []);
 
   const handleModelsConfigClose = useCallback(() => {
     setModelsConfigOpen(false);
+    if (modelConfigStatus?.hasUsableModel !== true) {
+      setNoModelConfigDismissed(true);
+    }
     handleModelsChanged();
-  }, [handleModelsChanged]);
+    void refreshModelConfigStatus();
+  }, [handleModelsChanged, modelConfigStatus?.hasUsableModel, refreshModelConfigStatus]);
+
+  const handleAddAppAndStartChat = useCallback(async () => {
+    handleModelsChanged();
+    const status = await refreshModelConfigStatus();
+    if (status?.hasUsableModel !== true) {
+      setModelsConfigOpen(true);
+      setNoModelConfigDismissed(false);
+      return;
+    }
+    setModelsConfigOpen(false);
+    setNoModelConfigDismissed(false);
+    handleNewSession("__model_config_ready__", activeCwd ?? selectedSession?.cwd ?? newSessionCwd ?? "/root");
+  }, [activeCwd, handleModelsChanged, handleNewSession, newSessionCwd, refreshModelConfigStatus, selectedSession?.cwd]);
+
+  const handleStartOpenHouseFirstConfig = useCallback(async () => {
+    if (openHouseFirstConfigStarting) return;
+    setOpenHouseFirstConfigStarting(true);
+    setOpenHouseFirstConfigError(null);
+    try {
+      const status = await refreshModelConfigStatus();
+      if (status?.hasUsableModel !== true) {
+        setModelsConfigOpen(true);
+        setNoModelConfigDismissed(false);
+        setOpenHouseFirstConfigError("请先完成可用模型配置。");
+        return;
+      }
+
+      const res = await fetch("/api/openhouse-first-config", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action: "start" }),
+      });
+      if (!res.ok) {
+        throw new Error(`HTTP ${res.status}`);
+      }
+      const data = await res.json() as OpenHouseFirstConfigResponse;
+      if (!data.prompt || !data.state) {
+        throw new Error(data.error ?? "OpenHouse 首次配置任务不可用。");
+      }
+      setOpenHouseFirstConfigState(data.state);
+      setOpenHouseInitialPrompt({ key: `${Date.now()}`, prompt: data.prompt });
+      setModelsConfigOpen(false);
+      setNoModelConfigDismissed(false);
+      handleNewSession("__openhouse_first_config__", "/root");
+    } catch (error) {
+      setOpenHouseFirstConfigError(error instanceof Error ? error.message : String(error));
+    } finally {
+      setOpenHouseFirstConfigStarting(false);
+    }
+  }, [handleNewSession, openHouseFirstConfigStarting, refreshModelConfigStatus]);
+
+  const handleOpenHouseInitialPromptQueued = useCallback(() => {
+    setOpenHouseInitialPrompt(null);
+  }, []);
 
   const handleSessionDeleted = useCallback((sessionId: string) => {
     setRefreshKey((k) => k + 1);
@@ -295,6 +459,19 @@ export function AppShell() {
   const showPlaceholder = initialSessionRestored && !showChat;
 
   const activeFileTab = fileTabs.find((t) => t.id === activeFileTabId) ?? null;
+  const canAddAppAndStartChat = modelConfigStatus?.hasUsableModel === true;
+  const addAppAndStartChatDisabledReason = canAddAppAndStartChat
+    ? undefined
+    : (
+      modelConfigStatus?.missingReasons?.find((reason) => reason.trim().length > 0)
+      ?? modelConfigStatusError
+      ?? "请先保存一个可用模型配置。"
+    );
+  const showOpenHouseFirstConfigEntry =
+    modelConfigStatus?.hasUsableModel === true
+    && openHouseFirstConfigState !== null
+    && openHouseFirstConfigState.started !== true
+    && openHouseFirstConfigState.completed !== true;
 
   const sidebarContent = (
     <>
@@ -316,7 +493,7 @@ export function AppShell() {
         {([
           {
             label: "模型",
-            onClick: () => setModelsConfigOpen(true),
+            onClick: handleOpenModelsConfig,
             disabled: false,
             icon: (
               <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
@@ -893,6 +1070,87 @@ export function AppShell() {
 
         </div>
 
+        {showOpenHouseFirstConfigEntry && (
+          <div style={{
+            flexShrink: 0,
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "space-between",
+            gap: 12,
+            padding: "9px 12px",
+            borderBottom: "1px solid color-mix(in srgb, var(--accent) 30%, var(--border))",
+            background: "color-mix(in srgb, var(--accent) 10%, var(--bg-panel))",
+            color: "var(--text-muted)",
+            fontSize: 12,
+            lineHeight: 1.5,
+          }}>
+            <div style={{ minWidth: 0 }}>
+              <span style={{ color: "var(--text)", fontWeight: 700 }}>首次使用 OpenHouse，看到我，请点击我，完成首次配置。</span>
+              {openHouseFirstConfigError && (
+                <span style={{ color: "var(--danger, #ef4444)", marginLeft: 8 }}>{openHouseFirstConfigError}</span>
+              )}
+            </div>
+            <button
+              type="button"
+              onClick={handleStartOpenHouseFirstConfig}
+              disabled={openHouseFirstConfigStarting}
+              style={{
+                flexShrink: 0,
+                height: 30,
+                padding: "0 11px",
+                borderRadius: 7,
+                border: "1px solid color-mix(in srgb, var(--accent) 50%, var(--border))",
+                background: openHouseFirstConfigStarting ? "var(--bg-hover)" : "var(--accent)",
+                color: openHouseFirstConfigStarting ? "var(--text-muted)" : "white",
+                cursor: openHouseFirstConfigStarting ? "default" : "pointer",
+                fontSize: 12,
+                fontWeight: 650,
+              }}
+            >
+              {openHouseFirstConfigStarting ? "正在开启..." : "开始首次配置"}
+            </button>
+          </div>
+        )}
+
+        {modelConfigStatus?.hasUsableModel === false && !modelsConfigOpen && (
+          <div style={{
+            flexShrink: 0,
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "space-between",
+            gap: 12,
+            padding: "9px 12px",
+            borderBottom: "1px solid color-mix(in srgb, var(--accent) 28%, var(--border))",
+            background: "color-mix(in srgb, var(--accent) 8%, var(--bg-panel))",
+            color: "var(--text-muted)",
+            fontSize: 12,
+            lineHeight: 1.5,
+          }}>
+            <div style={{ minWidth: 0 }}>
+              <span style={{ color: "var(--text)", fontWeight: 650 }}>还没有可用模型。</span>
+              <span> 配置一个模型后就可以开启新对话。</span>
+            </div>
+            <button
+              type="button"
+              onClick={handleOpenModelsConfig}
+              style={{
+                flexShrink: 0,
+                height: 30,
+                padding: "0 11px",
+                borderRadius: 7,
+                border: "1px solid color-mix(in srgb, var(--accent) 50%, var(--border))",
+                background: "var(--accent)",
+                color: "white",
+                cursor: "pointer",
+                fontSize: 12,
+                fontWeight: 650,
+              }}
+            >
+              配置模型
+            </button>
+          </div>
+        )}
+
         {/* Chat content */}
         <div style={{ flex: 1, overflow: "hidden", position: "relative" }}>
           {showChat ? (
@@ -909,8 +1167,11 @@ export function AppShell() {
               onSystemPromptChange={handleSystemPromptChange}
               onSessionStatsChange={handleSessionStatsChange}
               onSessionStatsPanelOpen={openSessionStatsPanel}
-              onOpenModelsConfig={() => setModelsConfigOpen(true)}
+              onOpenModelsConfig={handleOpenModelsConfig}
               onContextUsageChange={handleContextUsageChange}
+              initialPrompt={openHouseInitialPrompt?.prompt ?? null}
+              initialPromptKey={openHouseInitialPrompt?.key ?? null}
+              onInitialPromptQueued={handleOpenHouseInitialPromptQueued}
             />
           ) : showPlaceholder ? (
             activeCwd ? (
@@ -989,7 +1250,16 @@ export function AppShell() {
         <rect x="3" y="3" width="18" height="18" rx="2" /><line x1="15" y1="3" x2="15" y2="21" />
       </svg>
     </button>
-    {modelsConfigOpen && <ModelsConfig onClose={handleModelsConfigClose} onModelsChanged={handleModelsChanged} />}
+    {modelsConfigOpen && (
+      <ModelsConfigWithFlow
+        onClose={handleModelsConfigClose}
+        onModelsChanged={handleModelsChanged}
+        initialNoModelMode={modelConfigStatus?.hasUsableModel === false}
+        onAddAppAndStartChat={handleAddAppAndStartChat}
+        canAddAppAndStartChat={canAddAppAndStartChat}
+        addAppAndStartChatDisabledReason={addAppAndStartChatDisabledReason}
+      />
+    )}
     {skillsConfigOpen && (activeCwd ?? selectedSession?.cwd ?? newSessionCwd) && (
       <SkillsConfig cwd={(activeCwd ?? selectedSession?.cwd ?? newSessionCwd)!} onClose={() => setSkillsConfigOpen(false)} />
     )}

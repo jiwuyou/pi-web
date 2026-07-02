@@ -25,6 +25,9 @@ interface Props {
   onSessionStatsPanelOpen?: () => void;
   onOpenModelsConfig?: () => void;
   onContextUsageChange?: (usage: { percent: number | null; contextWindow: number; tokens: number | null } | null) => void;
+  initialPrompt?: string | null;
+  initialPromptKey?: string | null;
+  onInitialPromptQueued?: () => void;
 }
 
 function phaseLabel(phase: AgentPhase): string {
@@ -89,7 +92,7 @@ function Typewriter({ phrases }: { phrases: string[] }) {
   );
 }
 
-export function ChatWindow({ session, newSessionCwd, onAgentEnd, onSessionCreated, onSessionForked, modelsRefreshKey, chatInputRef, onBranchDataChange, onSystemPromptChange, onSessionStatsChange, onSessionStatsPanelOpen, onOpenModelsConfig, onContextUsageChange }: Props) {
+export function ChatWindow({ session, newSessionCwd, onAgentEnd, onSessionCreated, onSessionForked, modelsRefreshKey, chatInputRef, onBranchDataChange, onSystemPromptChange, onSessionStatsChange, onSessionStatsPanelOpen, onOpenModelsConfig, onContextUsageChange, initialPrompt, initialPromptKey, onInitialPromptQueued }: Props) {
   const {
     loading, error, messages, entryIds, streamState,
     agentRunning, modelNames, modelList, modelThinkingLevels, modelThinkingLevelMaps, toolPreset, thinkingLevel,
@@ -175,6 +178,7 @@ export function ChatWindow({ session, newSessionCwd, onAgentEnd, onSessionCreate
   const visibleMessages = messages.filter((m) => m.role === "user" || m.role === "assistant");
   const messageRefs = useMessageRefs(visibleMessages.length);
   const defaultFullToolsAppliedRef = useRef(false);
+  const initialPromptSentKeyRef = useRef<string | null>(null);
 
   useEffect(() => {
     if (!isNew || defaultFullToolsAppliedRef.current) return;
@@ -186,6 +190,26 @@ export function ChatWindow({ session, newSessionCwd, onAgentEnd, onSessionCreate
   const handleQuickStartPrompt = useCallback((prompt: string) => {
     chatInputRef?.current?.insertIfEmpty(prompt);
   }, [chatInputRef]);
+
+  useEffect(() => {
+    if (!initialPrompt || !initialPromptKey) return;
+    if (initialPromptSentKeyRef.current === initialPromptKey) return;
+    if (!isEmptyNew || agentRunning || streamState.isStreaming) return;
+    if (toolPreset !== "full") return;
+
+    initialPromptSentKeyRef.current = initialPromptKey;
+    void handleSend(initialPrompt);
+    onInitialPromptQueued?.();
+  }, [
+    agentRunning,
+    handleSend,
+    initialPrompt,
+    initialPromptKey,
+    isEmptyNew,
+    onInitialPromptQueued,
+    streamState.isStreaming,
+    toolPreset,
+  ]);
 
   const availableThinkingLevels = displayModelValue
     ? (modelThinkingLevels[`${displayModelValue.provider}:${displayModelValue.modelId}`] ?? null)

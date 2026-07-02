@@ -136,6 +136,15 @@ interface ModelsJson {
   providers?: Record<string, ProviderEntry>;
 }
 
+interface ModelsConfigProps {
+  onClose: () => void;
+  onModelsChanged?: () => void;
+  initialNoModelMode?: boolean;
+  onAddAppAndStartChat?: () => void;
+  canAddAppAndStartChat?: boolean;
+  addAppAndStartChatDisabledReason?: string;
+}
+
 type ModelTestState =
   | { phase: "idle" }
   | { phase: "testing" }
@@ -369,60 +378,18 @@ function SecretTextInput({
   spellCheck?: boolean;
   style?: React.CSSProperties;
 }) {
-  const [visible, setVisible] = useState(false);
-
-  useEffect(() => {
-    if (!value) setVisible(false);
-  }, [value]);
-
   return (
     <div style={{ position: "relative", width: "100%", ...style }}>
       <input
-        type={visible ? "text" : "password"}
+        type="password"
         value={value}
         onChange={(e) => onChange(e.target.value)}
         onKeyDown={onKeyDown}
         placeholder={placeholder}
-        style={{ ...inputStyle, paddingRight: 34, fontFamily: mono ? "var(--font-mono)" : "inherit" }}
+        style={{ ...inputStyle, fontFamily: mono ? "var(--font-mono)" : "inherit" }}
         autoComplete={autoComplete}
         spellCheck={spellCheck}
       />
-      <button
-        type="button"
-        onClick={() => setVisible((v) => !v)}
-        aria-label={visible ? "隐藏 API Key" : "显示 API Key"}
-        title={visible ? "隐藏 API Key" : "显示 API Key"}
-        style={{
-          position: "absolute",
-          right: 5,
-          top: "50%",
-          transform: "translateY(-50%)",
-          width: 24,
-          height: 24,
-          padding: 0,
-          border: "none",
-          background: "transparent",
-          color: "var(--text-dim)",
-          cursor: "pointer",
-          display: "flex",
-          alignItems: "center",
-          justifyContent: "center",
-        }}
-      >
-        {visible ? (
-          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-            <path d="M17.94 17.94A10.94 10.94 0 0 1 12 20C7 20 2.73 16.89 1 12a18.45 18.45 0 0 1 5.06-6.94" />
-            <path d="M9.9 4.24A10.94 10.94 0 0 1 12 4c5 0 9.27 3.11 11 8a18.5 18.5 0 0 1-2.16 3.19" />
-            <path d="M14.12 14.12A3 3 0 0 1 9.88 9.88" />
-            <path d="M1 1l22 22" />
-          </svg>
-        ) : (
-          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-            <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8S1 12 1 12Z" />
-            <circle cx="12" cy="12" r="3" />
-          </svg>
-        )}
-      </button>
     </div>
   );
 }
@@ -807,7 +774,7 @@ function ModelDetail({
         </div>
       </div>
 
-      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(min(220px, 100%), 1fr))", gap: 10 }}>
         <Field label="ID *"><TextInput value={model.id} onChange={(v) => set("id", v)} placeholder="model-id" mono /></Field>
         <Field label="显示名称"><TextInput value={model.name ?? ""} onChange={(v) => set("name", v || undefined)} placeholder="显示名称" /></Field>
       </div>
@@ -849,7 +816,7 @@ function ModelDetail({
         </>
       )}
 
-      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(min(180px, 100%), 1fr))", gap: 10 }}>
         <Field label="上下文窗口（Token）">
           <NumInput value={model.contextWindow !== undefined ? String(model.contextWindow) : ""}
             onChange={(v) => set("contextWindow", v ? parseInt(v) : undefined)} placeholder="128000" />
@@ -862,7 +829,7 @@ function ModelDetail({
 
       <div>
         <SectionTitle>价格（每百万 Token）</SectionTitle>
-        <div style={{ marginTop: 8, display: "grid", gridTemplateColumns: "1fr 1fr 1fr 1fr", gap: 8 }}>
+        <div style={{ marginTop: 8, display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(min(120px, 100%), 1fr))", gap: 8 }}>
           {(["input", "output", "cacheRead", "cacheWrite"] as const).map((k) => (
             <Field key={k} label={k}>
               <NumInput value={costVal(k)} onChange={(v) => setCost(k, v)} placeholder="0" />
@@ -1870,14 +1837,84 @@ function EasyModelWizard({
   );
 }
 
+function NoModelConfigCallout({
+  canAddAppAndStartChat,
+  addAppAndStartChatDisabledReason,
+  hasSavedConfig,
+  onStartConfig,
+  onAddAppAndStartChat,
+}: {
+  canAddAppAndStartChat: boolean;
+  addAppAndStartChatDisabledReason?: string;
+  hasSavedConfig: boolean;
+  onStartConfig: () => void;
+  onAddAppAndStartChat?: () => void;
+}) {
+  const isParentApprovedStartChat = canAddAppAndStartChat && !!onAddAppAndStartChat;
+  const showStartChatCta = hasSavedConfig || isParentApprovedStartChat;
+  const disabledReason = addAppAndStartChatDisabledReason ?? "已保存，正在检测模型是否可用。";
+
+  return (
+    <div style={{
+      display: "flex",
+      alignItems: "center",
+      justifyContent: "space-between",
+      gap: 12,
+      padding: "10px 18px",
+      borderBottom: "1px solid var(--border)",
+      background: "rgba(59,130,246,0.08)",
+      flexShrink: 0,
+      flexWrap: "wrap",
+    }}>
+      <div style={{ minWidth: 0, flex: "1 1 260px" }}>
+        <div style={{ fontSize: 13, fontWeight: 800, color: "var(--text)" }}>尚未检测到可用模型配置</div>
+        <div style={{ fontSize: 11, color: "var(--text-muted)", marginTop: 3, lineHeight: 1.5, overflowWrap: "anywhere" }}>
+          先添加一个模型应用。保存后会由系统检测可用性，通过后即可开启一个带完整工具的新对话。
+        </div>
+        {showStartChatCta && !isParentApprovedStartChat && (
+          <div style={{ fontSize: 11, color: "var(--text-dim)", marginTop: 4, lineHeight: 1.5, overflowWrap: "anywhere" }}>
+            {disabledReason}
+          </div>
+        )}
+      </div>
+      <button
+        onClick={showStartChatCta ? onAddAppAndStartChat : onStartConfig}
+        disabled={showStartChatCta && !isParentApprovedStartChat}
+        title={showStartChatCta && !isParentApprovedStartChat ? disabledReason : undefined}
+        style={{
+          padding: "7px 12px",
+          border: "none",
+          borderRadius: 7,
+          background: showStartChatCta ? (isParentApprovedStartChat ? "#16a34a" : "var(--bg-panel)") : "var(--accent)",
+          color: showStartChatCta && !isParentApprovedStartChat ? "var(--text-dim)" : "#fff",
+          cursor: showStartChatCta && !isParentApprovedStartChat ? "not-allowed" : "pointer",
+          fontSize: 12,
+          fontWeight: 800,
+          whiteSpace: "nowrap",
+        }}
+      >
+        {showStartChatCta ? "添加应用并开启新对话" : "开始配置模型"}
+      </button>
+    </div>
+  );
+}
+
 // ── Main component ────────────────────────────────────────────────────────────
 
-export function ModelsConfig({ onClose, onModelsChanged }: { onClose: () => void; onModelsChanged?: () => void }) {
+export function ModelsConfig({
+  onClose,
+  onModelsChanged,
+  initialNoModelMode = false,
+  onAddAppAndStartChat,
+  canAddAppAndStartChat = false,
+  addAppAndStartChatDisabledReason,
+}: ModelsConfigProps) {
   const [config, setConfig] = useState<ModelsJson>({ providers: {} });
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [saveError, setSaveError] = useState<string | null>(null);
   const [savedOk, setSavedOk] = useState(false);
+  const [hasSavedConfig, setHasSavedConfig] = useState(false);
   const [mode, setMode] = useState<"easy" | "advanced">("easy");
   const [selection, setSelection] = useState<Selection | null>(null);
   const [oauthProviders, setOauthProviders] = useState<OAuthProvider[]>([]);
@@ -2013,6 +2050,7 @@ export function ModelsConfig({ onClose, onModelsChanged }: { onClose: () => void
       }
       setConfig(nextConfig);
       setSavedOk(true);
+      setHasSavedConfig(true);
       setTimeout(() => setSavedOk(false), 2000);
       onModelsChanged?.();
       return true;
@@ -2073,6 +2111,9 @@ export function ModelsConfig({ onClose, onModelsChanged }: { onClose: () => void
       />
     );
   })();
+  const canStartNewChat = canAddAppAndStartChat && !!onAddAppAndStartChat;
+  const showAddAppAndStartChatAction = !!onAddAppAndStartChat && (hasSavedConfig || canAddAppAndStartChat);
+  const startChatDisabledReason = addAppAndStartChatDisabledReason ?? "已保存，正在检测模型是否可用。";
 
   return (
     <>
@@ -2116,6 +2157,16 @@ export function ModelsConfig({ onClose, onModelsChanged }: { onClose: () => void
           </div>
         </div>
 
+        {initialNoModelMode && (
+          <NoModelConfigCallout
+            canAddAppAndStartChat={canAddAppAndStartChat}
+            addAppAndStartChatDisabledReason={addAppAndStartChatDisabledReason}
+            hasSavedConfig={hasSavedConfig}
+            onStartConfig={() => setMode("easy")}
+            onAddAppAndStartChat={onAddAppAndStartChat}
+          />
+        )}
+
         {/* Body */}
         {mode === "easy" ? (
           <div style={{ flex: 1, overflowY: "auto", padding: 18 }}>
@@ -2137,11 +2188,15 @@ export function ModelsConfig({ onClose, onModelsChanged }: { onClose: () => void
             )}
           </div>
         ) : (
-        <div style={{ flex: 1, display: "flex", overflow: "hidden" }}>
+        <div style={{ flex: 1, display: "flex", flexDirection: "column", overflow: "hidden", minHeight: 0 }}>
 
-          {/* Left: tree */}
-          <div style={{ width: 210, borderRight: "1px solid var(--border)", display: "flex", flexDirection: "column", flexShrink: 0, background: "var(--bg-panel)" }}>
-            <div style={{ flex: 1, overflowY: "auto", padding: "8px 6px" }}>
+          {/* Top: provider/app/model selection */}
+          <div style={{ borderBottom: "1px solid var(--border)", display: "flex", flexDirection: "column", flexShrink: 0, background: "var(--bg-panel)", minHeight: 160, maxHeight: "42%" }}>
+            <div style={{ padding: "9px 12px", borderBottom: "1px solid var(--border)" }}>
+              <div style={{ fontSize: 12, fontWeight: 800, color: "var(--text)" }}>选择供应商 / 应用 / 模型</div>
+              <div style={{ fontSize: 10, color: "var(--text-dim)", marginTop: 2 }}>点选上方项目后，在下方编辑详情和测试连接。</div>
+            </div>
+            <div style={{ flex: 1, overflowY: "auto", padding: "10px 12px", display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(min(230px, 100%), 1fr))", gap: 6, alignContent: "start" }}>
               {/* Active OAuth subscriptions */}
               {activeOAuth.map((p) => {
                 const isSelected = selection?.type === "oauth" && selection.providerId === p.id;
@@ -2178,12 +2233,12 @@ export function ModelsConfig({ onClose, onModelsChanged }: { onClose: () => void
 
               {/* Divider before custom providers, only when there are active managed providers */}
               {(activeOAuth.length > 0 || activeApiKey.length > 0) && providers.length > 0 && (
-                <div style={{ margin: "4px 8px", borderTop: "1px solid var(--border)" }} />
+                <div style={{ gridColumn: "1 / -1", margin: "4px 8px", borderTop: "1px solid var(--border)" }} />
               )}
 
               {/* Custom providers */}
               {loading ? (
-                <div style={{ padding: "10px 8px", fontSize: 12, color: "var(--text-muted)" }}>正在加载...</div>
+                <div style={{ gridColumn: "1 / -1", padding: "10px 8px", fontSize: 12, color: "var(--text-muted)" }}>正在加载...</div>
               ) : providers.map(([pName, pData]) => {
                 const isProviderSelected = selection?.type === "provider" && selection.name === pName;
                 const models = pData.models ?? [];
@@ -2258,8 +2313,8 @@ export function ModelsConfig({ onClose, onModelsChanged }: { onClose: () => void
             </div>
           </div>
 
-          {/* Right: detail */}
-          <div style={{ flex: 1, overflowY: "auto", padding: 20 }}>
+          {/* Bottom: details, forms, and test results */}
+          <div style={{ flex: 1, minHeight: 0, overflowY: "auto", padding: 20 }}>
             {loading ? null : detailContent ?? (
               <div style={{ height: "100%", display: "flex", alignItems: "center", justifyContent: "center", color: "var(--text-dim)", fontSize: 13 }}>
                 请选择供应商或模型
@@ -2272,6 +2327,29 @@ export function ModelsConfig({ onClose, onModelsChanged }: { onClose: () => void
         {/* Footer */}
         <div style={{ display: "flex", alignItems: "center", justifyContent: "flex-end", gap: 10, padding: "10px 18px", borderTop: "1px solid var(--border)", flexShrink: 0, flexWrap: "wrap" }}>
           {saveError && <span style={{ fontSize: 12, color: "#f87171", flex: 1 }}>{saveError}</span>}
+          {showAddAppAndStartChatAction && !canStartNewChat && (
+            <span style={{ fontSize: 12, color: "var(--text-dim)", flex: 1, minWidth: 180, overflowWrap: "anywhere" }}>
+              {startChatDisabledReason}
+            </span>
+          )}
+          {showAddAppAndStartChatAction && (
+            <button
+              onClick={canStartNewChat ? onAddAppAndStartChat : undefined}
+              disabled={!canStartNewChat}
+              title={!canStartNewChat ? startChatDisabledReason : undefined}
+              style={{
+              padding: "6px 14px",
+              background: canStartNewChat ? "#16a34a" : "var(--bg-panel)",
+              border: "none",
+              borderRadius: 6,
+              color: canStartNewChat ? "#fff" : "var(--text-dim)",
+              cursor: canStartNewChat ? "pointer" : "not-allowed",
+              fontSize: 13,
+              fontWeight: 700,
+            }}>
+              添加应用并开启新对话
+            </button>
+          )}
           <button onClick={onClose} style={{ padding: "6px 14px", background: "none", border: "1px solid var(--border)", borderRadius: 6, color: "var(--text-muted)", cursor: "pointer", fontSize: 13 }}>
             {mode === "easy" ? "关闭" : "取消"}
           </button>
