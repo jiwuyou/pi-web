@@ -14,6 +14,7 @@ declare global {
 
 const ALLOWED_ROOTS_TTL_MS = 5_000;
 const WINDOWS_ABSOLUTE_RE = /^[a-zA-Z]:[\\/]/;
+const OPENHOUSE_DEFAULT_ROOT = "/root";
 
 export function normalizeSlashes(filePath: string): string {
   return filePath.replace(/\\/g, "/");
@@ -48,9 +49,11 @@ export async function getAllowedFileRoots(): Promise<Set<string>> {
     if (s.cwd) roots.add(normalizeSlashes(s.cwd));
   }
 
-  // Also allow the default workspace created by the default-cwd endpoint and
-  // legacy ~/pi-cwd-* directories created by older builds.
+  // Also allow the OpenHouse default project root, the previous ~/workspace
+  // default, and legacy ~/pi-cwd-* directories created by older builds.
   try {
+    roots.add(normalizeSlashes(OPENHOUSE_DEFAULT_ROOT));
+    roots.add(normalizeSlashes(homedir()));
     roots.add(normalizeSlashes(path.join(homedir(), "workspace")));
     for (const name of readdirSync(homedir())) {
       if (/^pi-cwd-\d{8}$/.test(name)) {

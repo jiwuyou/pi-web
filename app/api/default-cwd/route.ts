@@ -1,17 +1,16 @@
 import { NextResponse } from "next/server";
 import { mkdirSync } from "fs";
-import { homedir } from "os";
-import { join } from "path";
 import { allowFileRoot } from "@/lib/file-access";
 
+const DEFAULT_CWD = "/root";
+
 // POST /api/default-cwd
-// Creates ~/workspace if it doesn't exist and returns the path.
+// Returns the Ubuntu root user's home directory used by OpenHouse/pi-agent.
 export async function POST() {
   try {
-    const dir = join(homedir(), "workspace");
-    mkdirSync(dir, { recursive: true });
-    allowFileRoot(dir);
-    return NextResponse.json({ cwd: dir });
+    mkdirSync(DEFAULT_CWD, { recursive: true });
+    allowFileRoot(DEFAULT_CWD);
+    return NextResponse.json({ cwd: DEFAULT_CWD });
   } catch (error) {
     return NextResponse.json({ error: String(error) }, { status: 500 });
   }

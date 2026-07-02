@@ -4,6 +4,8 @@ import { useEffect, useState, useCallback, useRef } from "react";
 import type { SessionInfo } from "@/lib/types";
 import { FileExplorer } from "./FileExplorer";
 
+const OPENHOUSE_DEFAULT_CWD = "/root";
+
 interface Props {
   selectedSessionId: string | null;
   onSelectSession: (session: SessionInfo, isRestore?: boolean) => void;
@@ -50,6 +52,7 @@ function getRecentCwds(sessions: SessionInfo[]): string[] {
 }
 
 function shortenCwd(cwd: string, homeDir?: string): string {
+  if (cwd === OPENHOUSE_DEFAULT_CWD) return OPENHOUSE_DEFAULT_CWD;
   const path = (homeDir && cwd.startsWith(homeDir)) ? "~" + cwd.slice(homeDir.length) : cwd;
   const sep = path.includes("/") ? "/" : "\\";
   const parts = path.split(sep).filter(Boolean);
@@ -215,7 +218,8 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
   const [explorerRefreshDone, setExplorerRefreshDone] = useState(false);
   const sessionRefreshTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const explorerRefreshTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const defaultWorkspace = homeDir ? `${homeDir.replace(/\/$/, "")}/workspace` : "/root/workspace";
+  const defaultProjectRoot = OPENHOUSE_DEFAULT_CWD;
+  const defaultCwdRequestedRef = useRef(false);
 
   const loadSessions = useCallback(async (showLoading = false) => {
     try {
@@ -325,6 +329,13 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
       // ignore
     }
   }, []);
+
+  useEffect(() => {
+    if (loading || selectedCwd !== null || initialSessionId || defaultCwdRequestedRef.current) return;
+    if (getRecentCwds(allSessions).length > 0) return;
+    defaultCwdRequestedRef.current = true;
+    void handleDefaultCwd();
+  }, [allSessions, loading, selectedCwd, initialSessionId, handleDefaultCwd]);
 
   // Close dropdown on outside click
   useEffect(() => {
@@ -563,9 +574,9 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
                   <svg width="10" height="10" viewBox="0 0 10 10" fill="none" stroke="currentColor" strokeWidth="1.1" strokeLinecap="round" strokeLinejoin="round" style={{ flexShrink: 0 }}>
                     <path d="M1 3A1 1 0 0 1 2 2H4L5 3.5H8.5a.5.5 0 0 1 .5.5v4a.5.5 0 0 1-.5.5h-7A.5.5 0 0 1 1 8V3Z" />
                   </svg>
-                  <span>使用默认工作区</span>
+                  <span>使用默认目录</span>
                   <span style={{ marginLeft: "auto", fontFamily: "var(--font-mono)", color: "var(--text-dim)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
-                    {shortenCwd(defaultWorkspace, homeDir)}
+                    {shortenCwd(defaultProjectRoot, homeDir)}
                   </span>
                 </button>
               )}
@@ -576,7 +587,7 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
                   onClick={(e) => {
                     e.stopPropagation();
                     setCustomPathOpen(true);
-                    setCustomPathValue((value) => value || homeDir || "/root");
+                    setCustomPathValue((value) => value || defaultProjectRoot);
                     setCustomPathError(null);
                     setTimeout(() => customPathInputRef.current?.focus(), 0);
                   }}
@@ -685,6 +696,20 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
             </div>
           )}
         </div>
+        {selectedCwd === OPENHOUSE_DEFAULT_CWD && (
+          <div style={{
+            marginTop: 6,
+            padding: "6px 8px",
+            borderRadius: 7,
+            background: "color-mix(in srgb, var(--accent) 8%, transparent)",
+            border: "1px solid color-mix(in srgb, var(--accent) 22%, var(--border))",
+            color: "var(--text-muted)",
+            fontSize: 11,
+            lineHeight: 1.45,
+          }}>
+            当前项目目录是 Ubuntu root 用户目录 /root。
+          </div>
+        )}
       </div>
 
       {/* Session list */}

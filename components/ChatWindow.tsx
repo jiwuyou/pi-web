@@ -8,6 +8,7 @@ import { ChatMinimap, useMessageRefs } from "./ChatMinimap";
 import { useAgentSession, type AgentPhase, type NoticeItem } from "@/hooks/useAgentSession";
 import { useAudio } from "@/hooks/useAudio";
 import { useDragDrop } from "@/hooks/useDragDrop";
+import { STARTER_PROMPTS } from "@/lib/starter-prompts";
 import type { SessionStatsInfo } from "@/lib/pi-types";
 
 interface Props {
@@ -49,39 +50,6 @@ const TYPEWRITER_PHRASES = [
   "审查当前改动风险。",
   "把功能做到可验证。",
 ];
-
-const QUICK_START_ACTIONS = [
-  {
-    title: "总结项目",
-    description: "快速了解目录结构、技术栈和运行方式",
-    prompt: "请先快速浏览这个项目，概括它的技术栈、主要目录、启动方式和最重要的检查命令。",
-  },
-  {
-    title: "找一个问题",
-    description: "从代码入口和最近上下文里找高风险点",
-    prompt: "请检查这个项目里最值得优先修的一个问题，说明原因、影响范围，并给出最小修复方案。",
-  },
-  {
-    title: "解释报错",
-    description: "粘贴终端输出后让 Pi 定位原因",
-    prompt: "我会贴一段报错。请你先判断最可能的原因，再给出可验证的排查步骤和修复方案。",
-  },
-  {
-    title: "改进 README",
-    description: "整理安装、运行、配置和常见问题",
-    prompt: "请审查 README 和项目脚本，提出能让新用户更快上手的 README 改进，并在我确认后再修改。",
-  },
-  {
-    title: "生成测试",
-    description: "为现有逻辑补一组低风险回归测试",
-    prompt: "请找一个适合补测试的核心逻辑，说明测试点，然后实现一组聚焦的回归测试并运行对应检查。",
-  },
-  {
-    title: "代码审查",
-    description: "按 bug、风险、缺失测试优先审查",
-    prompt: "请用代码审查视角检查当前改动，优先指出 bug、行为回归风险和缺失测试，按严重程度排序。",
-  },
-] as const;
 
 const CHAT_MINIMAP_WIDTH = 36;
 const CHAT_COLUMN_PADDING = 16;
@@ -206,6 +174,13 @@ export function ChatWindow({ session, newSessionCwd, onAgentEnd, onSessionCreate
 
   const visibleMessages = messages.filter((m) => m.role === "user" || m.role === "assistant");
   const messageRefs = useMessageRefs(visibleMessages.length);
+  const defaultFullToolsAppliedRef = useRef(false);
+
+  useEffect(() => {
+    if (!isNew || defaultFullToolsAppliedRef.current) return;
+    defaultFullToolsAppliedRef.current = true;
+    if (toolPreset !== "full") void handleToolPresetChange("full");
+  }, [isNew, toolPreset, handleToolPresetChange]);
 
   const isEmptyNew = isNew && messages.length === 0 && !streamState.isStreaming && !agentRunning;
   const handleQuickStartPrompt = useCallback((prompt: string) => {
@@ -367,33 +342,34 @@ export function ChatWindow({ session, newSessionCwd, onAgentEnd, onSessionCreate
             <NoticeShelf notices={notices} align="right" />
             <div
               style={{
-                display: "flex",
-                flexWrap: "wrap",
+                display: "grid",
+                gridTemplateColumns: "repeat(auto-fit, minmax(180px, 1fr))",
                 gap: 8,
                 maxWidth: 820,
                 margin: "0 auto",
                 padding: "0 52px 10px 16px",
               }}
             >
-              {QUICK_START_ACTIONS.map((action) => (
+              {STARTER_PROMPTS.map((action) => (
                 <button
                   key={action.title}
                   type="button"
                   onClick={() => handleQuickStartPrompt(action.prompt)}
                   style={{
-                    display: "inline-flex",
-                    alignItems: "center",
+                    display: "flex",
+                    flexDirection: "column",
+                    alignItems: "flex-start",
                     justifyContent: "center",
-                    maxWidth: "100%",
-                    padding: "7px 12px",
-                    borderRadius: 999,
+                    minWidth: 0,
+                    minHeight: 74,
+                    padding: "10px 12px",
+                    borderRadius: 8,
                     border: "1px solid color-mix(in srgb, var(--border) 78%, transparent)",
                     background: "color-mix(in srgb, var(--bg-panel) 70%, var(--bg))",
                     color: "var(--text-muted)",
                     cursor: "pointer",
-                    fontSize: 12,
-                    lineHeight: 1.25,
-                    whiteSpace: "nowrap",
+                    textAlign: "left",
+                    lineHeight: 1.35,
                     boxShadow: "0 1px 2px rgba(15,23,42,0.03)",
                     transition: "border-color 0.12s, background 0.12s, color 0.12s, transform 0.12s",
                   }}
@@ -411,7 +387,17 @@ export function ChatWindow({ session, newSessionCwd, onAgentEnd, onSessionCreate
                   }}
                   title={action.description}
                 >
-                  {action.title}
+                  <span style={{ fontSize: 13, fontWeight: 700, color: "var(--text)", overflowWrap: "anywhere" }}>
+                    {action.title}
+                  </span>
+                  <span style={{
+                    marginTop: 4,
+                    fontSize: 11,
+                    color: "var(--text-muted)",
+                    overflowWrap: "anywhere",
+                  }}>
+                    {action.description}
+                  </span>
                 </button>
               ))}
             </div>

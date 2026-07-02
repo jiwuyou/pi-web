@@ -3,6 +3,25 @@ import { existsSync } from "fs";
 import { allowFileRoot } from "@/lib/file-access";
 import { startRpcSession } from "@/lib/rpc-manager";
 
+const DEFAULT_TOOL_NAMES = ["read", "bash", "edit", "write"];
+const FULL_TOOL_NAMES = ["bash", "read", "edit", "write", "grep", "find", "ls"];
+
+function sameToolSet(a: string[], b: string[]): boolean {
+  if (a.length !== b.length) return false;
+  const normalizedA = [...a].sort().join(",");
+  const normalizedB = [...b].sort().join(",");
+  return normalizedA === normalizedB;
+}
+
+function normalizeNewSessionToolNames(toolNames: unknown): string[] {
+  if (!Array.isArray(toolNames)) return FULL_TOOL_NAMES;
+  const names = toolNames.filter((name): name is string => typeof name === "string");
+  if (names.length !== toolNames.length) return FULL_TOOL_NAMES;
+  if (names.length === 0) return [];
+  if (sameToolSet(names, DEFAULT_TOOL_NAMES)) return FULL_TOOL_NAMES;
+  return names;
+}
+
 // POST /api/agent/new  body: { cwd: string; type: string; message?: string; ... }
 // Spawns a brand-new pi session. Most calls immediately send the first command;
 // type:"ensure_session" only creates the runtime so clients can query commands.
@@ -21,9 +40,10 @@ export async function POST(req: Request) {
 
     // Use a one-time key so startRpcSession's lock doesn't conflict with real session ids
     const { provider, modelId, toolNames, thinkingLevel, ...promptCommand } = command as { provider?: string; modelId?: string; toolNames?: string[]; thinkingLevel?: string; [key: string]: unknown };
+    const startupToolNames = normalizeNewSessionToolNames(toolNames);
 
     const tempKey = `__new__${Date.now()}`;
-    const { session, realSessionId } = await startRpcSession(tempKey, "", cwd, toolNames);
+    const { session, realSessionId } = await startRpcSession(tempKey, "", cwd, startupToolNames);
 
     // Keep the files-route allowed-roots cache (see app/api/files/[...path]/route.ts)
     // in sync so the new cwd is immediately readable via /api/files. Without this,
