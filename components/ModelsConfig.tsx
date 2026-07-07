@@ -212,12 +212,36 @@ const EASY_PROVIDER_PRESETS: EasyProviderPreset[] = [
     name: "OpenAI",
     providerName: "openai",
     iconId: "openai",
-    description: "GPT 系列模型",
+    description: "OpenAI Chat Completions",
     baseUrl: "https://api.openai.com/v1",
     api: "openai-completions",
     keyRequired: true,
     keyPlaceholder: "sk-...",
     defaultModels: ["gpt-4.1", "gpt-4.1-mini", "gpt-4o"],
+  },
+  {
+    id: "gpt-responses",
+    name: "GPT Responses",
+    providerName: "gpt-responses",
+    iconId: "openai",
+    description: "OpenAI 官方 Responses API",
+    baseUrl: "https://api.openai.com/v1",
+    api: "openai-responses",
+    keyRequired: true,
+    keyPlaceholder: "sk-...",
+    defaultModels: ["gpt-5.4", "gpt-5", "gpt-4.1"],
+  },
+  {
+    id: "gpt-responses-compatible",
+    name: "GPT Responses 兼容",
+    providerName: "gpt-responses兼容",
+    iconId: "openai",
+    description: "可修改地址的 Responses 兼容接口",
+    baseUrl: "",
+    api: "openai-responses",
+    keyRequired: true,
+    keyPlaceholder: "请输入兼容接口 API Key",
+    defaultModels: ["gpt-5.4", "gpt-5", "gpt-4.1"],
   },
   {
     id: "anthropic",
@@ -230,6 +254,18 @@ const EASY_PROVIDER_PRESETS: EasyProviderPreset[] = [
     keyRequired: true,
     keyPlaceholder: "sk-ant-...",
     defaultModels: ["claude-3-5-sonnet-latest", "claude-3-5-haiku-latest"],
+  },
+  {
+    id: "claude-compatible",
+    name: "Claude 兼容",
+    providerName: "claude兼容",
+    iconId: "anthropic",
+    description: "Anthropic Messages 兼容接口",
+    baseUrl: "",
+    api: "anthropic-messages",
+    keyRequired: true,
+    keyPlaceholder: "请输入 Claude 兼容接口 API Key",
+    defaultModels: ["claude-sonnet-4-6", "claude-sonnet-4", "claude-3-5-sonnet-latest"],
   },
   {
     id: "gemini",
@@ -319,14 +355,14 @@ const EASY_PROVIDER_PRESETS: EasyProviderPreset[] = [
   },
   {
     id: "custom-openai",
-    name: "自定义兼容",
-    providerName: "custom-openai",
+    name: "OpenAI 兼容",
+    providerName: "openai兼容",
     iconId: "openai",
-    description: "任意带 API Key 的 OpenAI 兼容地址",
+    description: "可修改地址的 Chat Completions 兼容接口",
     baseUrl: "",
     api: "openai-completions",
     keyRequired: true,
-    keyPlaceholder: "请输入 API Key；无 Key 请选 Ollama 或 LM Studio",
+    keyPlaceholder: "请输入 OpenAI 兼容接口 API Key",
     defaultModels: [],
   },
 ];
@@ -1447,6 +1483,12 @@ function buildEasyModel(preset: EasyProviderPreset, modelId: string): ModelEntry
   return model;
 }
 
+function isEasyCompatibilityPreset(preset: EasyProviderPreset): boolean {
+  return preset.id === "custom-openai"
+    || preset.id === "gpt-responses-compatible"
+    || preset.id === "claude-compatible";
+}
+
 async function saveEasyApiKey(providerName: string, apiKey: string): Promise<string | null> {
   const res = await fetch(`/api/auth/api-key/${encodeURIComponent(providerName)}`, {
     method: "POST",
@@ -1620,7 +1662,7 @@ function EasyModelWizard({
   const handleEnable = useCallback(async () => {
     if (!canEnable) {
       if (baseUrlMissing) setEnableMessage("先填写 Base URL");
-      else if (keyMissing) setEnableMessage(preset.id === "custom-openai" ? "自定义兼容需要 API Key；无 Key 请选 Ollama 或 LM Studio。" : "先填写 API Key");
+      else if (keyMissing) setEnableMessage(isEasyCompatibilityPreset(preset) ? "兼容接口需要 API Key；无 Key 请选 Ollama 或 LM Studio。" : "先填写 API Key");
       else setEnableMessage("先选择或手动输入模型");
       return;
     }
@@ -1663,7 +1705,7 @@ function EasyModelWizard({
     if (testState.phase === "error") return `${testState.message}${testState.hint ? ` · ${testState.hint}` : ""}`;
     if (enableError) return enableError;
     if (enableMessage) return enableMessage;
-    if (keyMissing && preset.id === "custom-openai") return "自定义兼容需要 API Key；无 Key 请选 Ollama 或 LM Studio。";
+    if (keyMissing && isEasyCompatibilityPreset(preset)) return "兼容接口需要 API Key；无 Key 请选 Ollama 或 LM Studio。";
     if (keyMissing) return "填写 API Key，或选择一个已经配置过的供应商。";
     if (fetchState.phase === "success") return fetchState.message ?? "模型列表已更新";
     if (fetchState.phase === "error") return `${fetchState.message}${fetchState.hint ? ` · ${fetchState.hint}` : ""}`;
@@ -1899,6 +1941,38 @@ function NoModelConfigCallout({
   );
 }
 
+function hasNonEmptyRecordValue(value: Record<string, unknown> | undefined): boolean {
+  return !!value && Object.keys(value).length > 0;
+}
+
+function hasTextValue(value: string | undefined): boolean {
+  return typeof value === "string" && value.trim().length > 0;
+}
+
+function pruneEmptyProviders(config: ModelsJson): ModelsJson {
+  const providers = config.providers;
+  if (!providers) return config;
+  const nextProviders: Record<string, ProviderEntry> = {};
+
+  for (const [name, provider] of Object.entries(providers)) {
+    const models = provider.models?.filter((model) => model.id.trim());
+    const nextProvider: ProviderEntry = {
+      ...provider,
+      ...(models ? { models: models.length ? models : undefined } : {}),
+    };
+    const hasMeaningfulConfig =
+      hasTextValue(nextProvider.baseUrl)
+      || hasNonEmptyRecordValue(nextProvider.headers)
+      || hasNonEmptyRecordValue(nextProvider.compat)
+      || hasNonEmptyRecordValue(nextProvider.modelOverrides as Record<string, unknown> | undefined)
+      || !!nextProvider.models?.length;
+
+    if (hasMeaningfulConfig) nextProviders[name] = nextProvider;
+  }
+
+  return { ...config, providers: nextProviders };
+}
+
 // ── Main component ────────────────────────────────────────────────────────────
 
 export function ModelsConfig({
@@ -2034,6 +2108,7 @@ export function ModelsConfig({
   }, []);
 
   const saveConfig = useCallback(async (nextConfig: ModelsJson) => {
+    const sanitizedConfig = pruneEmptyProviders(nextConfig);
     setSaving(true);
     setSaveError(null);
     setSavedOk(false);
@@ -2041,14 +2116,14 @@ export function ModelsConfig({
       const res = await fetch("/api/models-config", {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(nextConfig),
+        body: JSON.stringify(sanitizedConfig),
       });
-      const d = await res.json() as { success?: boolean; error?: string };
+      const d = await res.json() as { success?: boolean; error?: string; config?: ModelsJson };
       if (!res.ok || d.error) {
         setSaveError(d.error ?? `HTTP ${res.status}`);
         return false;
       }
-      setConfig(nextConfig);
+      setConfig(d.config ?? sanitizedConfig);
       setSavedOk(true);
       setHasSavedConfig(true);
       setTimeout(() => setSavedOk(false), 2000);

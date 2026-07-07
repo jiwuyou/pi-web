@@ -43,7 +43,10 @@ const modelCollator = new Intl.Collator(undefined, { numeric: true, sensitivity:
 const MODEL_PRIORITIES: Record<string, string[]> = {
   deepseek: ["deepseek-chat", "deepseek-reasoner"],
   openai: ["gpt-5.4", "gpt-5", "gpt-4.1", "gpt-4o", "gpt-4o-mini"],
+  "gpt-responses": ["gpt-5.4", "gpt-5", "gpt-4.1"],
+  "gpt-responses-compatible": ["gpt-5.4", "gpt-5", "gpt-4.1"],
   anthropic: ["claude-sonnet-4-6", "claude-sonnet-4", "claude-3-7-sonnet", "claude-3-5-sonnet"],
+  "custom-anthropic": ["claude-sonnet-4-6", "claude-sonnet-4", "claude-3-7-sonnet", "claude-3-5-sonnet"],
   google: ["gemini-2.5-flash", "gemini-2.5-pro", "gemini-1.5-flash"],
   openrouter: ["openai/gpt-5.4", "anthropic/claude-sonnet-4", "google/gemini-2.5-flash"],
   siliconflow: ["deepseek-ai/DeepSeek-V3", "Qwen/Qwen2.5-Coder-32B-Instruct"],
