@@ -2,9 +2,8 @@
 
 import { useEffect, useState, useCallback, useRef } from "react";
 import type { SessionInfo } from "@/lib/types";
+import { fetchOpenHouseDefaultCwd } from "@/lib/default-cwd-client";
 import { FileExplorer } from "./FileExplorer";
-
-const OPENHOUSE_DEFAULT_CWD = "/root";
 
 interface Props {
   selectedSessionId: string | null;
@@ -52,7 +51,6 @@ function getRecentCwds(sessions: SessionInfo[]): string[] {
 }
 
 function shortenCwd(cwd: string, homeDir?: string): string {
-  if (cwd === OPENHOUSE_DEFAULT_CWD) return OPENHOUSE_DEFAULT_CWD;
   const path = (homeDir && cwd.startsWith(homeDir)) ? "~" + cwd.slice(homeDir.length) : cwd;
   const sep = path.includes("/") ? "/" : "\\";
   const parts = path.split(sep).filter(Boolean);
@@ -205,6 +203,7 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
   const [error, setError] = useState<string | null>(null);
   const [selectedCwd, setSelectedCwd] = useState<string | null>(null);
   const [homeDir, setHomeDir] = useState<string>("");
+  const [defaultProjectRoot, setDefaultProjectRoot] = useState<string>("");
   const [dropdownOpen, setDropdownOpen] = useState(false);
   const [customPathOpen, setCustomPathOpen] = useState(false);
   const [customPathValue, setCustomPathValue] = useState("");
@@ -218,7 +217,6 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
   const [explorerRefreshDone, setExplorerRefreshDone] = useState(false);
   const sessionRefreshTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const explorerRefreshTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const defaultProjectRoot = OPENHOUSE_DEFAULT_CWD;
   const defaultCwdRequestedRef = useRef(false);
 
   const loadSessions = useCallback(async (showLoading = false) => {
@@ -256,6 +254,7 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
     fetch("/api/home").then((r) => r.json()).then((d: { home?: string }) => {
       if (d.home) setHomeDir(d.home);
     }).catch(() => {});
+    fetchOpenHouseDefaultCwd().then(setDefaultProjectRoot).catch(() => {});
   }, []);
 
   const restoredRef = useRef(false);
@@ -316,10 +315,10 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
 
   const handleDefaultCwd = useCallback(async () => {
     try {
-      const res = await fetch("/api/default-cwd", { method: "POST" });
-      const data = await res.json() as { cwd?: string; error?: string };
-      if (data.cwd) {
-        setSelectedCwd(data.cwd);
+      const cwd = await fetchOpenHouseDefaultCwd();
+      if (cwd) {
+        setDefaultProjectRoot(cwd);
+        setSelectedCwd(cwd);
         setCustomPathOpen(false);
         setCustomPathValue("");
         setCustomPathError(null);
@@ -696,7 +695,7 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
             </div>
           )}
         </div>
-        {selectedCwd === OPENHOUSE_DEFAULT_CWD && (
+        {defaultProjectRoot && selectedCwd === defaultProjectRoot && (
           <div style={{
             marginTop: 6,
             padding: "6px 8px",
@@ -707,7 +706,7 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
             fontSize: 11,
             lineHeight: 1.45,
           }}>
-            当前项目目录是 Ubuntu root 用户目录 /root。
+            当前项目目录是 OpenHouse 默认工作目录 {defaultProjectRoot}。
           </div>
         )}
       </div>

@@ -13,6 +13,7 @@ import { useTheme } from "@/hooks/useTheme";
 import type { SessionInfo, SessionTreeNode } from "@/lib/types";
 import type { ChatInputHandle } from "./ChatInput";
 import type { SessionStatsInfo } from "@/lib/pi-types";
+import { fetchOpenHouseDefaultCwd } from "@/lib/default-cwd-client";
 
 type SessionCopyField = "file" | "id";
 
@@ -365,7 +366,8 @@ export function AppShell() {
     }
     setModelsConfigOpen(false);
     setNoModelConfigDismissed(false);
-    handleNewSession("__model_config_ready__", activeCwd ?? selectedSession?.cwd ?? newSessionCwd ?? "/root");
+    const cwd = activeCwd ?? selectedSession?.cwd ?? newSessionCwd ?? await fetchOpenHouseDefaultCwd();
+    handleNewSession("__model_config_ready__", cwd);
   }, [activeCwd, handleModelsChanged, handleNewSession, newSessionCwd, refreshModelConfigStatus, selectedSession?.cwd]);
 
   const handleStartOpenHouseFirstConfig = useCallback(async () => {
@@ -397,7 +399,7 @@ export function AppShell() {
       setOpenHouseInitialPrompt({ key: `${Date.now()}`, prompt: data.prompt });
       setModelsConfigOpen(false);
       setNoModelConfigDismissed(false);
-      handleNewSession("__openhouse_first_config__", "/root");
+      handleNewSession("__openhouse_first_config__", await fetchOpenHouseDefaultCwd());
     } catch (error) {
       setOpenHouseFirstConfigError(error instanceof Error ? error.message : String(error));
     } finally {

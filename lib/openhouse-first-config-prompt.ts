@@ -1,5 +1,7 @@
-export const OPENHOUSE_DOCS_DIR = "/root/openhouse/docs";
-export const OPENHOUSE_SCRIPTS_DIR = "/root/openhouse/scripts";
+import { getOpenHouseDocsDir, getOpenHouseScriptsDir } from "./runtime-paths";
+
+export const OPENHOUSE_DOCS_DIR = getOpenHouseDocsDir();
+export const OPENHOUSE_SCRIPTS_DIR = getOpenHouseScriptsDir();
 
 export const OPENHOUSE_PRIORITY_DOCS = [
   `${OPENHOUSE_DOCS_DIR}/openhouse-overview.md`,

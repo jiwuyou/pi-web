@@ -1,5 +1,6 @@
 import { existsSync, readFileSync } from "fs";
 import { join } from "path";
+import { getOpenHouseDefaultCwd } from "./runtime-paths";
 import {
   AuthStorage,
   getAgentDir,
@@ -94,7 +95,7 @@ interface RegistryModelSummary {
 }
 
 export async function getModelConfigHealth(options: { cwd?: string } = {}): Promise<ModelConfigHealth> {
-  const cwd = options.cwd || "/root";
+  const cwd = options.cwd || getOpenHouseDefaultCwd();
   const agentDir = getAgentDir();
   const modelsPath = join(agentDir, "models.json");
   const { config, exists, parseError } = readModelsConfig(modelsPath);

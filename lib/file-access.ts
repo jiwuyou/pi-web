@@ -2,6 +2,7 @@ import { readdirSync } from "fs";
 import { homedir } from "os";
 import path from "path";
 import { listAllSessions } from "./session-reader";
+import { getOpenHouseDefaultCwd } from "./runtime-paths";
 
 // Short-TTL cache for the allowed-roots set. Without this, every file list/read
 // request re-scans every pi session on disk just to check access. 5s is short
@@ -14,7 +15,6 @@ declare global {
 
 const ALLOWED_ROOTS_TTL_MS = 5_000;
 const WINDOWS_ABSOLUTE_RE = /^[a-zA-Z]:[\\/]/;
-const OPENHOUSE_DEFAULT_ROOT = "/root";
 
 export function normalizeSlashes(filePath: string): string {
   return filePath.replace(/\\/g, "/");
@@ -52,7 +52,7 @@ export async function getAllowedFileRoots(): Promise<Set<string>> {
   // Also allow the OpenHouse default project root, the previous ~/workspace
   // default, and legacy ~/pi-cwd-* directories created by older builds.
   try {
-    roots.add(normalizeSlashes(OPENHOUSE_DEFAULT_ROOT));
+    roots.add(normalizeSlashes(getOpenHouseDefaultCwd()));
     roots.add(normalizeSlashes(homedir()));
     roots.add(normalizeSlashes(path.join(homedir(), "workspace")));
     for (const name of readdirSync(homedir())) {

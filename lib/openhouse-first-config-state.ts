@@ -1,8 +1,9 @@
 import { mkdir, readFile, writeFile } from "fs/promises";
 import { dirname } from "path";
+import { getOpenHouseFirstConfigStatePath } from "./runtime-paths";
 
 export const OPENHOUSE_FIRST_CONFIG_STATE_PATH =
-  process.env.OPENHOUSE_FIRST_CONFIG_STATE_PATH ?? "/root/.config/openhouseai/first-config.json";
+  getOpenHouseFirstConfigStatePath();
 
 export type OpenHouseFirstConfigState = {
   started: boolean;
