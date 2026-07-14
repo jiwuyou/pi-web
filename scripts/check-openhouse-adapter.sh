@@ -9,8 +9,14 @@ fail() {
   exit 1
 }
 
-[ "$(git branch --show-current)" = "openhouse" ] \
-  || fail "must run on the long-lived openhouse branch"
+current_branch="$(git branch --show-current)"
+case "$current_branch" in
+  openhouse|ubuntu-sillytavern)
+    ;;
+  *)
+    fail "must run on the openhouse or ubuntu-sillytavern branch"
+    ;;
+esac
 
 source_dirs=(app components lib)
 rg_args=(--hidden --glob '*.ts' --glob '*.tsx' --glob '*.js' --glob '*.mjs')

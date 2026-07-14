@@ -61,12 +61,14 @@ const url = `http://${hostname ?? "localhost"}:${port}`;
 child.stdout.on("data", (chunk) => {
   const text = chunk.toString();
   process.stdout.write(text);
-  if (!browserOpened && text.includes("Ready")) {
+  if (!browserOpened && text.includes("Ready") && process.env.PI_WEB_OPEN_BROWSER === "1") {
     browserOpened = true;
     const isWindows = process.platform === "win32";
     const isMac = process.platform === "darwin";
     const openCmd = isWindows ? "start" : isMac ? "open" : "xdg-open";
-    spawn(openCmd, [url], { shell: isWindows, stdio: "ignore", detached: true }).unref();
+    const opener = spawn(openCmd, [url], { shell: isWindows, stdio: "ignore", detached: true });
+    opener.on("error", () => {});
+    opener.unref();
   }
 });
 
