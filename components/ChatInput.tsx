@@ -96,6 +96,19 @@ function formatTokenCount(tokens: number): string {
   return tokens.toLocaleString();
 }
 
+function resizeChatTextarea(textarea: HTMLTextAreaElement | null): void {
+  if (!textarea) return;
+  const isNarrow = typeof window !== "undefined" && window.matchMedia("(max-width: 640px)").matches;
+  const viewportHeight = typeof window !== "undefined"
+    ? (window.visualViewport?.height ?? window.innerHeight)
+    : 400;
+  const maxHeight = isNarrow ? Math.min(120, viewportHeight * 0.3) : 200;
+  textarea.style.height = "auto";
+  textarea.style.maxHeight = `${maxHeight}px`;
+  textarea.style.height = `${Math.min(textarea.scrollHeight, maxHeight)}px`;
+  textarea.style.overflowY = "auto";
+}
+
 type SlashCommandPaletteItem = SlashCommandInfo | {
   name: string;
   description: string;
@@ -159,6 +172,7 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
   const [slashActiveIndex, setSlashActiveIndex] = useState(0);
   const [advancedControlsOpen, setAdvancedControlsOpen] = useState(false);
   const [queuedDrafts, setQueuedDrafts] = useState<QueuedDraft[]>([]);
+  const [isNarrowViewport, setIsNarrowViewport] = useState(false);
 
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const dropdownRef = useRef<HTMLDivElement>(null);
@@ -181,14 +195,14 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
       requestAnimationFrame(() => {
         if (!ta) return;
         ta.focus();
-        ta.style.height = "auto";
-        ta.style.height = `${Math.min(ta.scrollHeight, 200)}px`;
+        resizeChatTextarea(ta);
       });
     },
     insertText(text: string) {
       const ta = textareaRef.current;
       if (!ta) {
         setValue((v) => v + (v ? " " : "") + text);
+        requestAnimationFrame(() => resizeChatTextarea(textareaRef.current));
         return;
       }
       const start = ta.selectionStart ?? ta.value.length;
@@ -203,14 +217,30 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
         const pos = start + sep.length + text.length;
         ta.setSelectionRange(pos, pos);
         ta.focus();
-        ta.style.height = "auto";
-        ta.style.height = `${Math.min(ta.scrollHeight, 200)}px`;
+        resizeChatTextarea(ta);
       });
     },
     addImages(files: File[]) {
       processImageFiles(files);
     },
   }));
+
+  useEffect(() => {
+    const media = window.matchMedia("(max-width: 640px)");
+    const syncViewport = () => {
+      setIsNarrowViewport(media.matches);
+      resizeChatTextarea(textareaRef.current);
+    };
+    const visualViewport = window.visualViewport;
+
+    syncViewport();
+    media.addEventListener("change", syncViewport);
+    visualViewport?.addEventListener("resize", syncViewport);
+    return () => {
+      media.removeEventListener("change", syncViewport);
+      visualViewport?.removeEventListener("resize", syncViewport);
+    };
+  }, []);
 
   const processImageFiles = useCallback(async (files: File[]) => {
     const imageFiles = files.filter((f) => f.type.startsWith("image/"));
@@ -253,17 +283,13 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
   const clearInput = useCallback(() => {
     setValue("");
     clearImages();
-    if (textareaRef.current) {
-      textareaRef.current.style.height = "auto";
-    }
+    requestAnimationFrame(() => resizeChatTextarea(textareaRef.current));
   }, [clearImages]);
 
   const clearQueuedInput = useCallback(() => {
     setValue("");
     setAttachedImages([]);
-    if (textareaRef.current) {
-      textareaRef.current.style.height = "auto";
-    }
+    requestAnimationFrame(() => resizeChatTextarea(textareaRef.current));
   }, []);
 
   const releaseQueuedDraftImages = useCallback((draft: QueuedDraft) => {
@@ -333,8 +359,7 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
       if (!ta) return;
       ta.focus();
       ta.setSelectionRange(nextValue.length, nextValue.length);
-      ta.style.height = "auto";
-      ta.style.height = `${Math.min(ta.scrollHeight, 200)}px`;
+      resizeChatTextarea(ta);
     });
   }, []);
 
@@ -387,7 +412,7 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
       onPromptWithStreamingBehavior(msg, streamingBehavior, attachedImages.length ? attachedImages : undefined);
       setValue("");
       clearImages();
-      if (textareaRef.current) textareaRef.current.style.height = "auto";
+      requestAnimationFrame(() => resizeChatTextarea(textareaRef.current));
       return;
     }
     if (mode === "steer" && onSteer) {
@@ -395,7 +420,7 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
     }
     setValue("");
     clearImages();
-    if (textareaRef.current) textareaRef.current.style.height = "auto";
+    requestAnimationFrame(() => resizeChatTextarea(textareaRef.current));
   }, [value, attachedImages, onPromptWithStreamingBehavior, onSteer, onFollowUp, clearImages, clearQueuedInput]);
 
   const getNextSlashIndex = useCallback((direction: "up" | "down" | "left" | "right") => {
@@ -513,11 +538,8 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
     void dispatchQueuedDraft(next, "normal");
   }, [isStreaming, queuedDrafts, dispatchQueuedDraft]);
 
-  const handleInput = useCallback(() => {
-    const ta = textareaRef.current;
-    if (!ta) return;
-    ta.style.height = "auto";
-    ta.style.height = `${Math.min(ta.scrollHeight, 200)}px`;
+  const handleInput = useCallback((event: React.FormEvent<HTMLTextAreaElement>) => {
+    resizeChatTextarea(event.currentTarget);
   }, []);
 
   const handlePaste = useCallback((e: React.ClipboardEvent) => {
@@ -634,8 +656,8 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
       style={{
         flexShrink: 0,
         background: "transparent",
-        padding: "0 16px 8px",
-        paddingRight: 52, // 16px base + 36px for ChatMinimap alignment
+        padding: isNarrowViewport ? "0 8px 8px" : "0 16px 8px",
+        paddingRight: isNarrowViewport ? 8 : 52, // desktop base + ChatMinimap alignment
       }}
     >
       {/* Hidden file input */}
@@ -913,14 +935,14 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
           <div
             style={{
               display: "flex",
-              gap: 8,
+              gap: isNarrowViewport ? 4 : 8,
               alignItems: "center",
               background: "var(--bg)",
               border: `1px solid ${isStreaming && (onSteer || onFollowUp)
                 ? "rgba(234,179,8,0.4)"
                 : "color-mix(in srgb, var(--border) 70%, transparent)"}`,
               borderRadius: 14,
-              padding: "10px 10px 10px 14px",
+              padding: isNarrowViewport ? "8px 8px 8px 10px" : "10px 10px 10px 14px",
               boxShadow: "0 1px 2px rgba(15,23,42,0.04), 0 8px 24px -12px rgba(15,23,42,0.10)",
               transition: "border-color 0.15s, background 0.15s, box-shadow 0.15s",
             } as React.CSSProperties}
@@ -948,6 +970,7 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
             rows={1}
             style={{
               flex: 1,
+              minWidth: 0,
               background: "none",
               border: "none",
               outline: "none",
@@ -957,8 +980,9 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
               lineHeight: 1.6,
               fontFamily: "inherit",
               minHeight: 24,
-              maxHeight: 200,
-              overflow: "auto",
+              maxHeight: isNarrowViewport ? "min(120px, 30dvh)" : 200,
+              overflowY: "auto",
+              overflowX: "hidden",
             }}
           />
 
@@ -971,7 +995,7 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
                   title={onFollowUp ? "加入待处理队列" : "立即插队发送"}
                   style={{
                     display: "flex", alignItems: "center", gap: 5,
-                    padding: "7px 14px",
+                    padding: isNarrowViewport ? "7px 9px" : "7px 14px",
                     background: (value.trim() || attachedImages.length) ? "var(--accent)" : "var(--bg-panel)",
                     border: "none",
                     borderRadius: 8,
@@ -994,7 +1018,7 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
                   title="立即插队，尽快影响当前任务"
                   style={{
                     display: "flex", alignItems: "center", gap: 5,
-                    padding: "7px 12px",
+                    padding: isNarrowViewport ? "7px 9px" : "7px 12px",
                     background: (value.trim() || attachedImages.length) ? "rgba(234,179,8,0.12)" : "none",
                     border: "1px solid rgba(234,179,8,0.35)",
                     borderRadius: 8,
@@ -1020,7 +1044,7 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
                 flexShrink: 0,
                 alignSelf: "flex-end",
                 display: "flex", alignItems: "center", gap: 6,
-                padding: "7px 14px",
+                padding: isNarrowViewport ? "7px 9px" : "7px 14px",
                 background: (value.trim() || attachedImages.length) ? "var(--accent)" : "var(--bg-panel)",
                 border: "none",
                 borderRadius: 8,

@@ -79,12 +79,14 @@ export function AppShell() {
   const [openHouseFirstConfigError, setOpenHouseFirstConfigError] = useState<string | null>(null);
   const [skillsConfigOpen, setSkillsConfigOpen] = useState(false);
   const [sidebarOpen, setSidebarOpen] = useState(false);
+  const [isNarrowViewport, setIsNarrowViewport] = useState(false);
   const chatInputRef = useRef<ChatInputHandle | null>(null);
   const topBarRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     const media = window.matchMedia("(max-width: 640px)");
     const syncSidebarMode = () => {
+      setIsNarrowViewport(media.matches);
       setSidebarOpen(!media.matches);
     };
 
@@ -1012,19 +1014,26 @@ export function AppShell() {
             display: "flex",
             alignItems: "center",
             justifyContent: "space-between",
-            gap: 12,
-            padding: "9px 12px",
+            gap: isNarrowViewport ? 8 : 12,
+            padding: isNarrowViewport ? "6px 8px" : "9px 12px",
             borderBottom: "1px solid color-mix(in srgb, var(--accent) 30%, var(--border))",
             background: "color-mix(in srgb, var(--accent) 10%, var(--bg-panel))",
             color: "var(--text-muted)",
-            fontSize: 12,
+            fontSize: isNarrowViewport ? 11 : 12,
             lineHeight: 1.5,
           }}>
-            <div style={{ minWidth: 0 }}>
-              <span style={{ color: "var(--text)", fontWeight: 700 }}>OpenHouse 首次配置</span>
-              <span> 使用已安装的标准任务模板检查并配置系统。</span>
+            <div style={{ minWidth: 0, display: "flex", alignItems: "center", gap: isNarrowViewport ? 6 : 0, overflow: "hidden" }}>
+              <span style={{ color: "var(--text)", fontWeight: 700, flexShrink: 0 }}>OpenHouse 首次配置</span>
+              {!isNarrowViewport && <span> 使用已安装的标准任务模板检查并配置系统。</span>}
               {openHouseFirstConfigError && (
-                <span style={{ color: "var(--danger, #ef4444)", marginLeft: 8 }}>{openHouseFirstConfigError}</span>
+                <span style={{
+                  color: "var(--danger, #ef4444)",
+                  marginLeft: isNarrowViewport ? 0 : 8,
+                  minWidth: 0,
+                  overflow: isNarrowViewport ? "hidden" : undefined,
+                  textOverflow: isNarrowViewport ? "ellipsis" : undefined,
+                  whiteSpace: isNarrowViewport ? "nowrap" : undefined,
+                }}>{openHouseFirstConfigError}</span>
               )}
             </div>
             <button
@@ -1033,18 +1042,20 @@ export function AppShell() {
               disabled={openHouseFirstConfigStarting}
               style={{
                 flexShrink: 0,
-                height: 30,
-                padding: "0 11px",
+                height: isNarrowViewport ? 28 : 30,
+                padding: isNarrowViewport ? "0 9px" : "0 11px",
                 borderRadius: 7,
                 border: "1px solid color-mix(in srgb, var(--accent) 50%, var(--border))",
                 background: openHouseFirstConfigStarting ? "var(--bg-hover)" : "var(--accent)",
                 color: openHouseFirstConfigStarting ? "var(--text-muted)" : "white",
                 cursor: openHouseFirstConfigStarting ? "default" : "pointer",
-                fontSize: 12,
+                fontSize: isNarrowViewport ? 11 : 12,
                 fontWeight: 650,
               }}
             >
-              {openHouseFirstConfigStarting ? "正在开启..." : "开始首次配置"}
+              {openHouseFirstConfigStarting
+                ? (isNarrowViewport ? "开启中..." : "正在开启...")
+                : (isNarrowViewport ? "配置" : "开始首次配置")}
             </button>
           </div>
         )}
