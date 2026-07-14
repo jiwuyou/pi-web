@@ -322,109 +322,88 @@ export function ChatWindow({ session, newSessionCwd, onAgentEnd, onSessionCreate
       )}
 
       {isEmptyNew ? (
-        <div className="flex flex-1 flex-col overflow-hidden">
-          <div
-            className="flex flex-1 items-center justify-center overflow-y-auto px-4"
-            style={{
-              paddingTop: 56,
-              paddingBottom: 24,
-            }}
-          >
-            <div className="w-full max-w-[860px]">
-              <div
-                style={{
-                  display: "flex",
-                  flexDirection: "column",
-                  gap: 10,
-                  paddingLeft: 16,
-                  paddingRight: 52,
-                }}
-              >
-                <div style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", gap: 12 }}>
-                  <div style={{ display: "flex", alignItems: "flex-start", gap: 10, minWidth: 0, flex: 1 }}>
-                    <span style={{ fontSize: 30, lineHeight: 1.2, fontWeight: 750, letterSpacing: 0, color: "var(--text)", flexShrink: 0 }}>π</span>
-                    <h1 style={{ margin: 0, fontSize: 28, lineHeight: 1.25, color: "var(--text)", fontWeight: 720, letterSpacing: 0, overflow: "visible" }}>
-                      今天想让 Pi 做什么？
-                    </h1>
+        <div className="flex min-h-0 flex-1 flex-col overflow-hidden">
+          <div className="min-h-0 flex-1 overflow-y-auto [scrollbar-width:none]">
+            <div className="mx-auto flex min-h-full w-full max-w-[860px] px-4 sm:pr-[52px]">
+              <div className="my-auto w-full py-6 sm:py-10">
+                <div
+                  style={{
+                    display: "flex",
+                    flexDirection: "column",
+                    gap: 10,
+                  }}
+                >
+                  <div style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", gap: 12 }}>
+                    <div style={{ display: "flex", alignItems: "flex-start", gap: 10, minWidth: 0, flex: 1 }}>
+                      <span style={{ fontSize: 30, lineHeight: 1.2, fontWeight: 750, letterSpacing: 0, color: "var(--text)", flexShrink: 0 }}>π</span>
+                      <h1 style={{ margin: 0, fontSize: 28, lineHeight: 1.25, color: "var(--text)", fontWeight: 720, letterSpacing: 0, overflow: "visible" }}>
+                        今天想让 Pi 做什么？
+                      </h1>
+                    </div>
+                    <div style={{ display: "flex", flexDirection: "column", alignItems: "flex-end", gap: 2, flexShrink: 0, fontFamily: "var(--font-mono)" }}>
+                      <span style={{ fontSize: 11, color: "var(--text-muted)" }}>
+                        web <span style={{ color: "var(--text)" }}>v{process.env.NEXT_PUBLIC_APP_VERSION ?? "0.0.0"}</span>
+                      </span>
+                      <span style={{ fontSize: 11, color: "var(--text-muted)" }}>
+                        pi <span style={{ color: "var(--text)" }}>v{process.env.NEXT_PUBLIC_PI_VERSION ?? "0.0.0"}</span>
+                      </span>
+                    </div>
                   </div>
-                  <div style={{ display: "flex", flexDirection: "column", alignItems: "flex-end", gap: 2, flexShrink: 0, fontFamily: "var(--font-mono)" }}>
-                    <span style={{ fontSize: 11, color: "var(--text-muted)" }}>
-                      web <span style={{ color: "var(--text)" }}>v{process.env.NEXT_PUBLIC_APP_VERSION ?? "0.0.0"}</span>
-                    </span>
-                    <span style={{ fontSize: 11, color: "var(--text-muted)" }}>
-                      pi <span style={{ color: "var(--text)" }}>v{process.env.NEXT_PUBLIC_PI_VERSION ?? "0.0.0"}</span>
-                    </span>
+                  <div style={{ fontSize: 14, color: "var(--text-muted)", lineHeight: 1.6, minHeight: 24 }}>
+                    <Typewriter phrases={TYPEWRITER_PHRASES} />
                   </div>
                 </div>
-                <div style={{ fontSize: 14, color: "var(--text-muted)", lineHeight: 1.6, minHeight: 24 }}>
-                  <Typewriter phrases={TYPEWRITER_PHRASES} />
+                <div className="mt-4">
+                  <NoticeShelf notices={notices} align="right" />
+                </div>
+                <div className="mt-2 grid grid-cols-2 gap-2 sm:grid-cols-3 lg:grid-cols-4">
+                  {STARTER_PROMPTS.map((action) => (
+                    <button
+                      key={action.title}
+                      type="button"
+                      onClick={() => handleQuickStartPrompt(action.prompt)}
+                      aria-label={`${action.title}：${action.description}`}
+                      style={{
+                        display: "flex",
+                        alignItems: "flex-start",
+                        justifyContent: "center",
+                        minWidth: 0,
+                        height: 46,
+                        padding: "6px 10px",
+                        borderRadius: 8,
+                        border: "1px solid color-mix(in srgb, var(--border) 78%, transparent)",
+                        background: "color-mix(in srgb, var(--bg-panel) 70%, var(--bg))",
+                        color: "var(--text-muted)",
+                        cursor: "pointer",
+                        textAlign: "left",
+                        lineHeight: 1.35,
+                        boxShadow: "0 1px 2px rgba(15,23,42,0.03)",
+                        transition: "border-color 0.12s, background 0.12s, color 0.12s, transform 0.12s",
+                      }}
+                      onMouseEnter={(e) => {
+                        e.currentTarget.style.borderColor = "color-mix(in srgb, var(--accent) 42%, var(--border))";
+                        e.currentTarget.style.background = "var(--bg-hover)";
+                        e.currentTarget.style.color = "var(--text)";
+                        e.currentTarget.style.transform = "translateY(-1px)";
+                      }}
+                      onMouseLeave={(e) => {
+                        e.currentTarget.style.borderColor = "color-mix(in srgb, var(--border) 78%, transparent)";
+                        e.currentTarget.style.background = "color-mix(in srgb, var(--bg-panel) 70%, var(--bg))";
+                        e.currentTarget.style.color = "var(--text-muted)";
+                        e.currentTarget.style.transform = "translateY(0)";
+                      }}
+                      title={action.description}
+                    >
+                      <span style={{ fontSize: 13, fontWeight: 700, color: "var(--text)", overflowWrap: "anywhere" }}>
+                        {action.title}
+                      </span>
+                    </button>
+                  ))}
                 </div>
               </div>
             </div>
           </div>
-          <div style={{ flexShrink: 0, paddingBottom: 8 }}>
-            <NoticeShelf notices={notices} align="right" />
-            <div
-              style={{
-                display: "grid",
-                gridTemplateColumns: "repeat(auto-fit, minmax(180px, 1fr))",
-                gap: 8,
-                maxWidth: 820,
-                margin: "0 auto",
-                padding: "0 52px 10px 16px",
-              }}
-            >
-              {STARTER_PROMPTS.map((action) => (
-                <button
-                  key={action.title}
-                  type="button"
-                  onClick={() => handleQuickStartPrompt(action.prompt)}
-                  style={{
-                    display: "flex",
-                    flexDirection: "column",
-                    alignItems: "flex-start",
-                    justifyContent: "center",
-                    minWidth: 0,
-                    minHeight: 74,
-                    padding: "10px 12px",
-                    borderRadius: 8,
-                    border: "1px solid color-mix(in srgb, var(--border) 78%, transparent)",
-                    background: "color-mix(in srgb, var(--bg-panel) 70%, var(--bg))",
-                    color: "var(--text-muted)",
-                    cursor: "pointer",
-                    textAlign: "left",
-                    lineHeight: 1.35,
-                    boxShadow: "0 1px 2px rgba(15,23,42,0.03)",
-                    transition: "border-color 0.12s, background 0.12s, color 0.12s, transform 0.12s",
-                  }}
-                  onMouseEnter={(e) => {
-                    e.currentTarget.style.borderColor = "color-mix(in srgb, var(--accent) 42%, var(--border))";
-                    e.currentTarget.style.background = "var(--bg-hover)";
-                    e.currentTarget.style.color = "var(--text)";
-                    e.currentTarget.style.transform = "translateY(-1px)";
-                  }}
-                  onMouseLeave={(e) => {
-                    e.currentTarget.style.borderColor = "color-mix(in srgb, var(--border) 78%, transparent)";
-                    e.currentTarget.style.background = "color-mix(in srgb, var(--bg-panel) 70%, var(--bg))";
-                    e.currentTarget.style.color = "var(--text-muted)";
-                    e.currentTarget.style.transform = "translateY(0)";
-                  }}
-                  title={action.description}
-                >
-                  <span style={{ fontSize: 13, fontWeight: 700, color: "var(--text)", overflowWrap: "anywhere" }}>
-                    {action.title}
-                  </span>
-                  <span style={{
-                    marginTop: 4,
-                    fontSize: 11,
-                    color: "var(--text-muted)",
-                    overflowWrap: "anywhere",
-                  }}>
-                    {action.description}
-                  </span>
-                </button>
-              ))}
-            </div>
+          <div className="flex-shrink-0 pb-2">
             {chatInputElement}
           </div>
         </div>
