@@ -1,11 +1,11 @@
 import { NextResponse } from "next/server";
 import { mkdirSync } from "fs";
 import { allowFileRoot } from "@/lib/file-access";
-import { getOpenHouseDefaultCwd } from "@/lib/runtime-paths";
+import { getDefaultCwd } from "@/lib/runtime-paths";
 
 async function resolveDefaultCwd() {
   try {
-    const defaultCwd = getOpenHouseDefaultCwd();
+    const defaultCwd = getDefaultCwd();
     mkdirSync(defaultCwd, { recursive: true });
     allowFileRoot(defaultCwd);
     return NextResponse.json({ cwd: defaultCwd });
@@ -15,6 +15,6 @@ async function resolveDefaultCwd() {
 }
 
 // GET/POST /api/default-cwd
-// Returns the configured OpenHouse project directory, falling back to os.homedir().
+// Returns PI_WEB_DEFAULT_CWD, falling back to os.homedir().
 export const GET = resolveDefaultCwd;
 export const POST = resolveDefaultCwd;

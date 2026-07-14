@@ -13,7 +13,7 @@ import { useTheme } from "@/hooks/useTheme";
 import type { SessionInfo, SessionTreeNode } from "@/lib/types";
 import type { ChatInputHandle } from "./ChatInput";
 import type { SessionStatsInfo } from "@/lib/pi-types";
-import { fetchOpenHouseDefaultCwd } from "@/lib/default-cwd-client";
+import { fetchDefaultCwd } from "@/lib/default-cwd-client";
 
 type SessionCopyField = "file" | "id";
 
@@ -22,20 +22,6 @@ type ModelConfigStatus = {
   modelCount?: number;
   defaultModel?: { provider?: string; modelId?: string } | null;
   missingReasons?: string[];
-};
-
-type OpenHouseFirstConfigState = {
-  started: boolean;
-  completed: boolean;
-  startedAt?: string;
-  completedAt?: string;
-  updatedAt?: string;
-};
-
-type OpenHouseFirstConfigResponse = {
-  state?: OpenHouseFirstConfigState;
-  prompt?: string;
-  error?: string;
 };
 
 type InitialPromptLaunch = {
@@ -88,10 +74,9 @@ export function AppShell() {
   const [modelConfigStatus, setModelConfigStatus] = useState<ModelConfigStatus | null>(null);
   const [modelConfigStatusError, setModelConfigStatusError] = useState<string | null>(null);
   const [noModelConfigDismissed, setNoModelConfigDismissed] = useState(false);
-  const [openHouseFirstConfigState, setOpenHouseFirstConfigState] = useState<OpenHouseFirstConfigState | null>(null);
-  const [openHouseFirstConfigError, setOpenHouseFirstConfigError] = useState<string | null>(null);
+  const [openHouseFirstConfigLaunch, setOpenHouseFirstConfigLaunch] = useState<InitialPromptLaunch | null>(null);
   const [openHouseFirstConfigStarting, setOpenHouseFirstConfigStarting] = useState(false);
-  const [openHouseInitialPrompt, setOpenHouseInitialPrompt] = useState<InitialPromptLaunch | null>(null);
+  const [openHouseFirstConfigError, setOpenHouseFirstConfigError] = useState<string | null>(null);
   const [skillsConfigOpen, setSkillsConfigOpen] = useState(false);
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const chatInputRef = useRef<ChatInputHandle | null>(null);
@@ -316,29 +301,6 @@ export function AppShell() {
     setModelsConfigOpen(true);
   }, [modelConfigStatus?.hasUsableModel, modelsConfigOpen, noModelConfigDismissed]);
 
-  const refreshOpenHouseFirstConfigState = useCallback(async () => {
-    try {
-      const res = await fetch("/api/openhouse-first-config", { cache: "no-store" });
-      if (!res.ok) {
-        setOpenHouseFirstConfigError("无法读取 OpenHouse 首次配置状态。");
-        return null;
-      }
-      const data = await res.json() as OpenHouseFirstConfigResponse;
-      const state = data.state ?? null;
-      setOpenHouseFirstConfigState(state);
-      setOpenHouseFirstConfigError(null);
-      return state;
-    } catch {
-      setOpenHouseFirstConfigError("无法连接 OpenHouse 首次配置状态接口。");
-      return null;
-    }
-  }, []);
-
-  useEffect(() => {
-    if (modelConfigStatus?.hasUsableModel !== true) return;
-    void refreshOpenHouseFirstConfigState();
-  }, [modelConfigStatus?.hasUsableModel, refreshOpenHouseFirstConfigState]);
-
   const handleOpenModelsConfig = useCallback(() => {
     setModelsConfigOpen(true);
   }, []);
@@ -366,7 +328,7 @@ export function AppShell() {
     }
     setModelsConfigOpen(false);
     setNoModelConfigDismissed(false);
-    const cwd = activeCwd ?? selectedSession?.cwd ?? newSessionCwd ?? await fetchOpenHouseDefaultCwd();
+    const cwd = activeCwd ?? selectedSession?.cwd ?? newSessionCwd ?? await fetchDefaultCwd();
     handleNewSession("__model_config_ready__", cwd);
   }, [activeCwd, handleModelsChanged, handleNewSession, newSessionCwd, refreshModelConfigStatus, selectedSession?.cwd]);
 
@@ -375,40 +337,18 @@ export function AppShell() {
     setOpenHouseFirstConfigStarting(true);
     setOpenHouseFirstConfigError(null);
     try {
-      const status = await refreshModelConfigStatus();
-      if (status?.hasUsableModel !== true) {
-        setModelsConfigOpen(true);
-        setNoModelConfigDismissed(false);
-        setOpenHouseFirstConfigError("请先完成可用模型配置。");
-        return;
-      }
-
-      const res = await fetch("/api/openhouse-first-config", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ action: "start" }),
-      });
-      if (!res.ok) {
-        throw new Error(`HTTP ${res.status}`);
-      }
-      const data = await res.json() as OpenHouseFirstConfigResponse;
-      if (!data.prompt || !data.state) {
-        throw new Error(data.error ?? "OpenHouse 首次配置任务不可用。");
-      }
-      setOpenHouseFirstConfigState(data.state);
-      setOpenHouseInitialPrompt({ key: `${Date.now()}`, prompt: data.prompt });
-      setModelsConfigOpen(false);
-      setNoModelConfigDismissed(false);
-      handleNewSession("__openhouse_first_config__", await fetchOpenHouseDefaultCwd());
+      const cwd = await fetchDefaultCwd();
+      setOpenHouseFirstConfigLaunch({ key: `${Date.now()}`, prompt: "/openhouse-first-config" });
+      handleNewSession("__openhouse_first_config__", cwd);
     } catch (error) {
       setOpenHouseFirstConfigError(error instanceof Error ? error.message : String(error));
     } finally {
       setOpenHouseFirstConfigStarting(false);
     }
-  }, [handleNewSession, openHouseFirstConfigStarting, refreshModelConfigStatus]);
+  }, [handleNewSession, openHouseFirstConfigStarting]);
 
-  const handleOpenHouseInitialPromptQueued = useCallback(() => {
-    setOpenHouseInitialPrompt(null);
+  const handleOpenHouseFirstConfigQueued = useCallback(() => {
+    setOpenHouseFirstConfigLaunch(null);
   }, []);
 
   const handleSessionDeleted = useCallback((sessionId: string) => {
@@ -469,12 +409,6 @@ export function AppShell() {
       ?? modelConfigStatusError
       ?? "请先保存一个可用模型配置。"
     );
-  const showOpenHouseFirstConfigEntry =
-    modelConfigStatus?.hasUsableModel === true
-    && openHouseFirstConfigState !== null
-    && openHouseFirstConfigState.started !== true
-    && openHouseFirstConfigState.completed !== true;
-
   const sidebarContent = (
     <>
       <SessionSidebar
@@ -1072,7 +1006,7 @@ export function AppShell() {
 
         </div>
 
-        {showOpenHouseFirstConfigEntry && (
+        {modelConfigStatus?.hasUsableModel === true && (
           <div style={{
             flexShrink: 0,
             display: "flex",
@@ -1087,7 +1021,8 @@ export function AppShell() {
             lineHeight: 1.5,
           }}>
             <div style={{ minWidth: 0 }}>
-              <span style={{ color: "var(--text)", fontWeight: 700 }}>首次使用 OpenHouse，看到我，请点击我，完成首次配置。</span>
+              <span style={{ color: "var(--text)", fontWeight: 700 }}>OpenHouse 首次配置</span>
+              <span> 使用已安装的标准任务模板检查并配置系统。</span>
               {openHouseFirstConfigError && (
                 <span style={{ color: "var(--danger, #ef4444)", marginLeft: 8 }}>{openHouseFirstConfigError}</span>
               )}
@@ -1171,9 +1106,9 @@ export function AppShell() {
               onSessionStatsPanelOpen={openSessionStatsPanel}
               onOpenModelsConfig={handleOpenModelsConfig}
               onContextUsageChange={handleContextUsageChange}
-              initialPrompt={openHouseInitialPrompt?.prompt ?? null}
-              initialPromptKey={openHouseInitialPrompt?.key ?? null}
-              onInitialPromptQueued={handleOpenHouseInitialPromptQueued}
+              initialPrompt={openHouseFirstConfigLaunch?.prompt ?? null}
+              initialPromptKey={openHouseFirstConfigLaunch?.key ?? null}
+              onInitialPromptQueued={handleOpenHouseFirstConfigQueued}
             />
           ) : showPlaceholder ? (
             activeCwd ? (

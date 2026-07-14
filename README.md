@@ -33,6 +33,7 @@ pi-web --hostname 127.0.0.1     # local access only
 pi-web -p 8080 -H 127.0.0.1     # combine options
 
 PORT=8080 pi-web                # environment variable is also supported
+PI_WEB_DEFAULT_CWD=~/workspace pi-web  # default project directory
 ```
 
 ## Features
@@ -46,6 +47,7 @@ PORT=8080 pi-web                # environment variable is also supported
 ## Notes
 
 - **Data directory**: pi-web reads `~/.pi/agent/sessions` by default. Set `PI_CODING_AGENT_DIR` to point at another pi agent directory.
+- **Default working directory**: set `PI_WEB_DEFAULT_CWD` to choose the project opened for new sessions when no directory is selected.
 - **Session files**: files are stored as `~/.pi/agent/sessions/<encoded-cwd>/<timestamp>_<uuid>.jsonl`.
 - **Model config**: the Models panel reads and writes `models.json` in the pi agent directory. Model lists and defaults come from pi's config.
 - **File access**: file browsing and preview are scoped to the selected project directory and working directories that appear in sessions.

@@ -2,7 +2,7 @@
 
 import { useEffect, useState, useCallback, useRef } from "react";
 import type { SessionInfo } from "@/lib/types";
-import { fetchOpenHouseDefaultCwd } from "@/lib/default-cwd-client";
+import { fetchDefaultCwd } from "@/lib/default-cwd-client";
 import { FileExplorer } from "./FileExplorer";
 
 interface Props {
@@ -254,7 +254,7 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
     fetch("/api/home").then((r) => r.json()).then((d: { home?: string }) => {
       if (d.home) setHomeDir(d.home);
     }).catch(() => {});
-    fetchOpenHouseDefaultCwd().then(setDefaultProjectRoot).catch(() => {});
+    fetchDefaultCwd().then(setDefaultProjectRoot).catch(() => {});
   }, []);
 
   const restoredRef = useRef(false);
@@ -315,7 +315,7 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
 
   const handleDefaultCwd = useCallback(async () => {
     try {
-      const cwd = await fetchOpenHouseDefaultCwd();
+      const cwd = await fetchDefaultCwd();
       if (cwd) {
         setDefaultProjectRoot(cwd);
         setSelectedCwd(cwd);
@@ -706,7 +706,7 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
             fontSize: 11,
             lineHeight: 1.45,
           }}>
-            当前项目目录是 OpenHouse 默认工作目录 {defaultProjectRoot}。
+            当前项目目录是默认工作目录 {defaultProjectRoot}。
           </div>
         )}
       </div>

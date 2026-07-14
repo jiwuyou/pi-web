@@ -7,22 +7,9 @@ function expandHome(value: string): string {
   return value;
 }
 
-export function getOpenHouseDefaultCwd(): string {
-  const configured = process.env.OPENHOUSE_PI_WEB_DEFAULT_CWD?.trim();
+export function getDefaultCwd(): string {
+  const configured = process.env.PI_WEB_DEFAULT_CWD?.trim();
   if (!configured) return homedir();
   const expanded = expandHome(configured);
   return isAbsolute(expanded) ? expanded : resolve(expanded);
-}
-
-export function getOpenHouseDocsDir(): string {
-  return process.env.OPENHOUSE_DOCS_DIR?.trim() || join(homedir(), "openhouse", "docs");
-}
-
-export function getOpenHouseScriptsDir(): string {
-  return process.env.OPENHOUSE_SCRIPTS_DIR?.trim() || join(homedir(), "openhouse", "scripts");
-}
-
-export function getOpenHouseFirstConfigStatePath(): string {
-  return process.env.OPENHOUSE_FIRST_CONFIG_STATE_PATH?.trim()
-    || join(homedir(), ".config", "openhouseai", "first-config.json");
 }
