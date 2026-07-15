@@ -19,6 +19,16 @@ const nextConfig = {
   output: "standalone",
   outputFileTracingRoot: __dirname,
   allowedDevOrigins: ["192.168.*.*", "axylinuxesc6562950372-1.tail78a984.ts.net"],
+  async headers() {
+    return [
+      {
+        source: "/",
+        headers: [
+          { key: "Cache-Control", value: "private, no-cache, max-age=0, must-revalidate" },
+        ],
+      },
+    ];
+  },
   env: {
     NEXT_PUBLIC_APP_VERSION: version,
     NEXT_PUBLIC_PI_VERSION: piVersion,

@@ -17,6 +17,8 @@ interface Props {
   onToggle?: () => void;
   /** Whether a session is currently active (used to show appropriate empty reason) */
   hasSession?: boolean;
+  /** When inline, render icon-only (no text label) to save horizontal space */
+  compact?: boolean;
 }
 
 // Find the visible entry IDs on the path from root to activeLeafId.
@@ -64,7 +66,7 @@ function getLabel(entry: SessionEntry): string {
     }
     if (text.length > 40) text = text.slice(0, 40) + "…";
     if (text) return text;
-    if (msg.role === "assistant") return "[助手]";
+    if (msg.role === "assistant") return "[assistant]";
   }
   return entry.type;
 }
@@ -214,7 +216,7 @@ function TreeNodeView({ node, activePathIds, depth, isLast, parentLines, onSelec
   );
 }
 
-export function BranchNavigator({ tree, activeLeafId, onLeafChange, inline, containerRef, open: openProp, onToggle, hasSession }: Props) {
+export function BranchNavigator({ tree, activeLeafId, onLeafChange, inline, containerRef, open: openProp, onToggle, hasSession, compact }: Props) {
   const [openInternal, setOpenInternal] = useState(false);
   const open = openProp !== undefined ? openProp : openInternal;
   const btnRef = useRef<HTMLButtonElement>(null);
@@ -244,9 +246,9 @@ export function BranchNavigator({ tree, activeLeafId, onLeafChange, inline, cont
   }, [onLeafChange]);
 
   const noBranchReason = !hasSession
-    ? "没有活动会话"
+    ? "No active session"
     : !hasBranch(tree)
-      ? "当前会话没有分支"
+      ? "This session has no branches"
       : null;
 
   // Find first meaningful node (skip pure linear prefix)
@@ -294,9 +296,12 @@ export function BranchNavigator({ tree, activeLeafId, onLeafChange, inline, cont
           }}
           onMouseEnter={(e) => { e.currentTarget.style.color = "var(--text)"; }}
           onMouseLeave={(e) => { e.currentTarget.style.color = open ? "var(--text)" : "var(--text-muted)"; }}
+          title="Branches"
+          aria-label="Branches"
+          aria-pressed={open}
         >
           {branchIcon}
-          <span>分支</span>
+          {!compact && <span>Branches</span>}
         </button>
         {open && dropdownPos && (
           <div style={{
@@ -353,7 +358,7 @@ export function BranchNavigator({ tree, activeLeafId, onLeafChange, inline, cont
         }}
       >
         {branchIcon}
-        <span style={{ color: "var(--text-muted)" }}>分支</span>
+        <span style={{ color: "var(--text-muted)" }}>Branches</span>
         {chevron}
       </button>
 
@@ -385,7 +390,7 @@ export function BranchNavigator({ tree, activeLeafId, onLeafChange, inline, cont
             </div>
           ) : (
             <div style={{ padding: "10px 16px", fontSize: 12, color: "var(--text-muted)", fontStyle: "italic" }}>
-              {noBranchReason ?? "当前会话没有分支"}
+              {noBranchReason ?? "This session has no branches"}
             </div>
           )}
         </div>

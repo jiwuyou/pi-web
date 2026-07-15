@@ -6,12 +6,20 @@ import { vs } from "react-syntax-highlighter/dist/cjs/styles/prism";
 import { vscDarkPlus } from "react-syntax-highlighter/dist/cjs/styles/prism";
 import ReactMarkdown from "react-markdown";
 import { useTheme } from "@/hooks/useTheme";
+import {
+  DOCX_PREVIEW_MAX_BYTES,
+  getFileExt,
+  isAudioPath,
+  isDocumentPreviewPath,
+  isImagePath,
+} from "@/lib/file-types";
 import { encodeFilePathForApi, getFileName, getRelativeFilePath } from "@/lib/file-paths";
 import { markdownPreviewRehypePlugins, markdownPreviewRemarkPlugins } from "@/lib/markdown";
 
 interface Props {
   filePath: string;
   cwd?: string;
+  sourceSessionId?: string | null;
 }
 
 interface FileData {
@@ -20,50 +28,47 @@ interface FileData {
   size: number;
 }
 
-const IMAGE_EXTS = new Set(["png", "jpg", "jpeg", "gif", "webp", "svg", "bmp", "ico", "avif"]);
-const AUDIO_EXTS = new Set(["mp3", "wav", "ogg", "oga", "opus", "m4a", "aac", "flac", "weba", "webm"]);
-const DOCUMENT_PREVIEW_EXTS = new Set(["pdf", "docx"]);
-const DOCX_PREVIEW_MAX_BYTES = 10 * 1024 * 1024;
-
-function isImagePath(filePath: string): boolean {
-  const base = getFileName(filePath);
-  const ext = base.toLowerCase().split(".").pop() ?? "";
-  return IMAGE_EXTS.has(ext);
-}
-
-function isAudioPath(filePath: string): boolean {
-  const base = getFileName(filePath);
-  const ext = base.toLowerCase().split(".").pop() ?? "";
-  return AUDIO_EXTS.has(ext);
-}
-
-function getFileExt(filePath: string): string {
-  return getFileName(filePath).toLowerCase().split(".").pop() ?? "";
-}
-
-function isDocumentPreviewPath(filePath: string): boolean {
-  return DOCUMENT_PREVIEW_EXTS.has(getFileExt(filePath));
-}
-
-function DownloadLink({ filePath, label = "下载" }: { filePath: string; label?: string }) {
+function getFileApiUrl(
+  filePath: string,
+  type: "read" | "download" | "meta" | "preview" | "watch",
+  sourceSessionId?: string | null,
+  params: Record<string, string | number | undefined> = {},
+): string {
   const encoded = encodeFilePathForApi(filePath);
+  const searchParams = new URLSearchParams({ type });
+  if (sourceSessionId) searchParams.set("sessionId", sourceSessionId);
+  for (const [key, value] of Object.entries(params)) {
+    if (value !== undefined) searchParams.set(key, String(value));
+  }
+  return `/api/files/${encoded}?${searchParams.toString()}`;
+}
+
+function DownloadLink({ filePath, sourceSessionId }: { filePath: string; sourceSessionId?: string | null }) {
   return (
     <a
-      href={`/api/files/${encoded}?type=read`}
+      href={getFileApiUrl(filePath, "download", sourceSessionId)}
       download={getFileName(filePath)}
+      title="Download file"
       style={{
-        color: "var(--text-muted)",
-        textDecoration: "none",
+        display: "flex",
+        alignItems: "center",
+        justifyContent: "center",
+        height: 20,
+        padding: "0 5px",
+        background: "var(--bg-panel)",
         border: "1px solid var(--border)",
-        borderRadius: 5,
-        padding: "2px 8px",
-        fontSize: 11,
-        lineHeight: 1.4,
-        background: "var(--bg-hover)",
+        borderRadius: 4,
+        color: "var(--text-muted)",
+        cursor: "pointer",
         flexShrink: 0,
+        textDecoration: "none",
       }}
     >
-      {label}
+      <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
+        <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
+        <polyline points="7 10 12 15 17 10" />
+        <line x1="12" y1="15" x2="12" y2="3" />
+      </svg>
     </a>
   );
 }
@@ -157,7 +162,7 @@ function DiffView({ oldContent, newContent }: { oldContent: string; newContent: 
   if (!hasChanges) {
     return (
       <div style={{ padding: "12px 16px", fontSize: 12, color: "var(--text-dim)", fontFamily: "var(--font-mono)" }}>
-        没有变化
+        No changes
       </div>
     );
   }
@@ -221,7 +226,7 @@ function DiffView({ oldContent, newContent }: { oldContent: string; newContent: 
                 borderBottom: "1px solid var(--border)",
               }}
             >
-              ... {seg.count} 行未变化 ...
+              ... {seg.count} unchanged lines ...
             </div>
           );
           diffIdx += seg.count;
@@ -303,7 +308,7 @@ function DiffView({ oldContent, newContent }: { oldContent: string; newContent: 
   );
 }
 
-function ImageViewer({ filePath, cwd }: { filePath: string; cwd?: string }) {
+function ImageViewer({ filePath, cwd, sourceSessionId }: Props) {
   const [watching, setWatching] = useState(false);
   const [bust, setBust] = useState(0);
   const [size, setSize] = useState<number | null>(null);
@@ -325,8 +330,7 @@ function ImageViewer({ filePath, cwd }: { filePath: string; cwd?: string }) {
       esRef.current = null;
     }
 
-    const encoded = encodeFilePathForApi(filePath);
-    const es = new EventSource(`/api/files/${encoded}?type=watch`);
+    const es = new EventSource(getFileApiUrl(filePath, "watch", sourceSessionId));
     esRef.current = es;
 
     es.addEventListener("connected", () => setWatching(true));
@@ -344,10 +348,9 @@ function ImageViewer({ filePath, cwd }: { filePath: string; cwd?: string }) {
       es.close();
       esRef.current = null;
     };
-  }, [filePath]);
+  }, [filePath, sourceSessionId]);
 
-  const encoded = encodeFilePathForApi(filePath);
-  const src = `/api/files/${encoded}?type=read${bust ? `&v=${bust}` : ""}`;
+  const src = getFileApiUrl(filePath, "read", sourceSessionId, bust ? { v: bust } : undefined);
 
   const formatSizeStr = size != null ? formatSize(size) : null;
 
@@ -373,7 +376,7 @@ function ImageViewer({ filePath, cwd }: { filePath: string; cwd?: string }) {
         {naturalSize && <span>{naturalSize.w} × {naturalSize.h}</span>}
         {formatSizeStr && <span>{formatSizeStr}</span>}
         <span
-          title={watching ? "实时同步中" : "未监听"}
+          title={watching ? "Live sync active" : "Not watching"}
           style={{ display: "flex", alignItems: "center", gap: 4, color: watching ? "#4ade80" : "var(--text-dim)" }}
         >
           <span
@@ -386,8 +389,9 @@ function ImageViewer({ filePath, cwd }: { filePath: string; cwd?: string }) {
               boxShadow: watching ? "0 0 4px #4ade80" : "none",
             }}
           />
-          {watching ? "实时" : "静态"}
+          {watching ? "live" : "static"}
         </span>
+        <DownloadLink filePath={filePath} sourceSessionId={sourceSessionId} />
       </div>
       <div
         style={{
@@ -415,7 +419,7 @@ function ImageViewer({ filePath, cwd }: { filePath: string; cwd?: string }) {
               const img = e.currentTarget;
               setNaturalSize({ w: img.naturalWidth, h: img.naturalHeight });
             }}
-            onError={() => setError("图片加载失败")}
+            onError={() => setError("Failed to load image")}
             style={{
               maxWidth: "100%",
               maxHeight: "100%",
@@ -437,7 +441,7 @@ function formatDuration(seconds: number): string {
   return `${mins}:${String(secs).padStart(2, "0")}`;
 }
 
-function AudioViewer({ filePath, cwd }: { filePath: string; cwd?: string }) {
+function AudioViewer({ filePath, cwd, sourceSessionId }: Props) {
   const [watching, setWatching] = useState(false);
   const [bust, setBust] = useState(0);
   const [size, setSize] = useState<number | null>(null);
@@ -459,8 +463,7 @@ function AudioViewer({ filePath, cwd }: { filePath: string; cwd?: string }) {
       esRef.current = null;
     }
 
-    const encoded = encodeFilePathForApi(filePath);
-    const es = new EventSource(`/api/files/${encoded}?type=watch`);
+    const es = new EventSource(getFileApiUrl(filePath, "watch", sourceSessionId));
     esRef.current = es;
 
     es.addEventListener("connected", () => setWatching(true));
@@ -480,10 +483,9 @@ function AudioViewer({ filePath, cwd }: { filePath: string; cwd?: string }) {
       es.close();
       esRef.current = null;
     };
-  }, [filePath]);
+  }, [filePath, sourceSessionId]);
 
-  const encoded = encodeFilePathForApi(filePath);
-  const src = `/api/files/${encoded}?type=read${bust ? `&v=${bust}` : ""}`;
+  const src = getFileApiUrl(filePath, "read", sourceSessionId, bust ? { v: bust } : undefined);
 
   return (
     <div style={{ display: "flex", flexDirection: "column", height: "100%", overflow: "hidden" }}>
@@ -507,7 +509,7 @@ function AudioViewer({ filePath, cwd }: { filePath: string; cwd?: string }) {
         {duration != null && <span>{formatDuration(duration)}</span>}
         {size != null && <span>{formatSize(size)}</span>}
         <span
-          title={watching ? "实时同步中" : "未监听"}
+          title={watching ? "Live sync active" : "Not watching"}
           style={{ display: "flex", alignItems: "center", gap: 4, color: watching ? "#4ade80" : "var(--text-dim)" }}
         >
           <span
@@ -520,8 +522,9 @@ function AudioViewer({ filePath, cwd }: { filePath: string; cwd?: string }) {
               boxShadow: watching ? "0 0 4px #4ade80" : "none",
             }}
           />
-          {watching ? "实时" : "静态"}
+          {watching ? "live" : "static"}
         </span>
+        <DownloadLink filePath={filePath} sourceSessionId={sourceSessionId} />
       </div>
       <div
         style={{
@@ -545,7 +548,7 @@ function AudioViewer({ filePath, cwd }: { filePath: string; cwd?: string }) {
             preload="metadata"
             src={src}
             onLoadedMetadata={(e) => setDuration(e.currentTarget.duration)}
-            onError={() => setError("音频加载失败")}
+            onError={() => setError("Failed to load audio")}
             style={{ width: "100%" }}
           />
         </div>
@@ -554,7 +557,7 @@ function AudioViewer({ filePath, cwd }: { filePath: string; cwd?: string }) {
   );
 }
 
-function DocumentViewer({ filePath, cwd }: { filePath: string; cwd?: string }) {
+function DocumentViewer({ filePath, cwd, sourceSessionId }: Props) {
   const [watching, setWatching] = useState(false);
   const [bust, setBust] = useState(0);
   const [size, setSize] = useState<number | null>(null);
@@ -562,11 +565,10 @@ function DocumentViewer({ filePath, cwd }: { filePath: string; cwd?: string }) {
   const esRef = useRef<EventSource | null>(null);
 
   const ext = getFileExt(filePath);
-  const encoded = encodeFilePathForApi(filePath);
   const isPdf = ext === "pdf";
   const previewUrl = isPdf
-    ? `/api/files/${encoded}?type=read${bust ? `&v=${bust}` : ""}`
-    : `/api/files/${encoded}?type=preview${bust ? `&v=${bust}` : ""}`;
+    ? getFileApiUrl(filePath, "read", sourceSessionId, bust ? { v: bust } : undefined)
+    : getFileApiUrl(filePath, "preview", sourceSessionId, bust ? { v: bust } : undefined);
 
   useEffect(() => {
     setBust(0);
@@ -579,20 +581,20 @@ function DocumentViewer({ filePath, cwd }: { filePath: string; cwd?: string }) {
       esRef.current = null;
     }
 
-    fetch(`/api/files/${encoded}?type=meta`)
+    fetch(getFileApiUrl(filePath, "meta", sourceSessionId))
       .then((r) => r.json())
       .then((d: { size?: number; error?: string }) => {
         if (d.error) setError(d.error);
         if (typeof d.size === "number") {
           setSize(d.size);
           if (!isPdf && d.size > DOCX_PREVIEW_MAX_BYTES) {
-            setError("DOCX 超过 10MB，无法预览");
+            setError("DOCX too large for preview (>10MB)");
           }
         }
       })
       .catch((e) => setError(String(e)));
 
-    const es = new EventSource(`/api/files/${encoded}?type=watch`);
+    const es = new EventSource(getFileApiUrl(filePath, "watch", sourceSessionId));
     esRef.current = es;
 
     es.addEventListener("connected", () => setWatching(true));
@@ -602,7 +604,7 @@ function DocumentViewer({ filePath, cwd }: { filePath: string; cwd?: string }) {
         if (typeof d.size === "number") {
           setSize(d.size);
           if (!isPdf && d.size > DOCX_PREVIEW_MAX_BYTES) {
-            setError("DOCX 超过 10MB，无法预览");
+            setError("DOCX too large for preview (>10MB)");
             return;
           }
         }
@@ -617,7 +619,7 @@ function DocumentViewer({ filePath, cwd }: { filePath: string; cwd?: string }) {
       es.close();
       esRef.current = null;
     };
-  }, [encoded, isPdf]);
+  }, [filePath, isPdf, sourceSessionId]);
 
   return (
     <div style={{ display: "flex", flexDirection: "column", height: "100%", overflow: "hidden" }}>
@@ -637,11 +639,11 @@ function DocumentViewer({ filePath, cwd }: { filePath: string; cwd?: string }) {
         <span style={{ fontFamily: "var(--font-mono)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }} title={filePath}>
           {getRelativeFilePath(filePath, cwd)}
         </span>
-        <span style={{ marginLeft: "auto" }}>{ext === "docx" ? "docx 预览" : "pdf"}</span>
+        <span style={{ marginLeft: "auto" }}>{ext === "docx" ? "docx preview" : "pdf"}</span>
         {size != null && <span>{formatSize(size)}</span>}
-        <DownloadLink filePath={filePath} />
+        <DownloadLink filePath={filePath} sourceSessionId={sourceSessionId} />
         <span
-          title={watching ? "实时同步中" : "未监听"}
+          title={watching ? "Live sync active" : "Not watching"}
           style={{ display: "flex", alignItems: "center", gap: 4, color: watching ? "#4ade80" : "var(--text-dim)", flexShrink: 0 }}
         >
           <span
@@ -654,7 +656,7 @@ function DocumentViewer({ filePath, cwd }: { filePath: string; cwd?: string }) {
               boxShadow: watching ? "0 0 4px #4ade80" : "none",
             }}
           />
-          {watching ? "实时" : "静态"}
+          {watching ? "live" : "static"}
         </span>
       </div>
       <div style={{ flex: 1, minHeight: 0, background: "var(--bg-panel)" }}>
@@ -667,7 +669,7 @@ function DocumentViewer({ filePath, cwd }: { filePath: string; cwd?: string }) {
             key={previewUrl}
             src={previewUrl}
             sandbox={isPdf ? undefined : ""}
-            title={`预览 ${getFileName(filePath)}`}
+            title={`Preview ${getFileName(filePath)}`}
             style={{ width: "100%", height: "100%", border: "none", background: isPdf ? "var(--bg)" : "#eef1f5" }}
           />
         )}
@@ -676,20 +678,20 @@ function DocumentViewer({ filePath, cwd }: { filePath: string; cwd?: string }) {
   );
 }
 
-export function FileViewer({ filePath, cwd }: Props) {
+export function FileViewer({ filePath, cwd, sourceSessionId }: Props) {
   if (isImagePath(filePath)) {
-    return <ImageViewer filePath={filePath} cwd={cwd} />;
+    return <ImageViewer filePath={filePath} cwd={cwd} sourceSessionId={sourceSessionId} />;
   }
   if (isAudioPath(filePath)) {
-    return <AudioViewer filePath={filePath} cwd={cwd} />;
+    return <AudioViewer filePath={filePath} cwd={cwd} sourceSessionId={sourceSessionId} />;
   }
   if (isDocumentPreviewPath(filePath)) {
-    return <DocumentViewer filePath={filePath} cwd={cwd} />;
+    return <DocumentViewer filePath={filePath} cwd={cwd} sourceSessionId={sourceSessionId} />;
   }
-  return <TextFileViewer filePath={filePath} cwd={cwd} />;
+  return <TextFileViewer filePath={filePath} cwd={cwd} sourceSessionId={sourceSessionId} />;
 }
 
-function TextFileViewer({ filePath, cwd }: Props) {
+function TextFileViewer({ filePath, cwd, sourceSessionId }: Props) {
   const { isDark } = useTheme();
   const [data, setData] = useState<FileData | null>(null);
   const [prevContent, setPrevContent] = useState<string | null>(null);
@@ -703,8 +705,7 @@ function TextFileViewer({ filePath, cwd }: Props) {
   const esRef = useRef<EventSource | null>(null);
 
   const fetchContent = useCallback((filePath: string, isRefresh = false) => {
-    const encoded = encodeFilePathForApi(filePath);
-    return fetch(`/api/files/${encoded}?type=read`)
+    return fetch(getFileApiUrl(filePath, "read", sourceSessionId))
       .then((r) => r.json())
       .then((d: FileData & { error?: string }) => {
         if (d.error) {
@@ -726,7 +727,7 @@ function TextFileViewer({ filePath, cwd }: Props) {
         setError(String(e));
         return null;
       });
-  }, []);
+  }, [sourceSessionId]);
 
   // Initial load + SSE watch setup
   useEffect(() => {
@@ -750,8 +751,7 @@ function TextFileViewer({ filePath, cwd }: Props) {
     }).finally(() => setLoading(false));
 
     // Set up SSE watch
-    const encoded = encodeFilePathForApi(filePath);
-    const es = new EventSource(`/api/files/${encoded}?type=watch`);
+    const es = new EventSource(getFileApiUrl(filePath, "watch", sourceSessionId));
     esRef.current = es;
 
     es.addEventListener("connected", () => {
@@ -774,12 +774,12 @@ function TextFileViewer({ filePath, cwd }: Props) {
       es.close();
       esRef.current = null;
     };
-  }, [filePath, fetchContent]);
+  }, [filePath, fetchContent, sourceSessionId]);
 
   if (loading) {
     return (
       <div style={{ height: "100%", display: "flex", alignItems: "center", justifyContent: "center", color: "var(--text-muted)", fontSize: 13 }}>
-        正在加载...
+        Loading...
       </div>
     );
   }
@@ -819,12 +819,12 @@ function TextFileViewer({ filePath, cwd }: Props) {
           {getRelativeFilePath(filePath, cwd)}
         </span>
         <span style={{ marginLeft: "auto" }}>{data.language}</span>
-        {viewMode === "source" && <span>{lines.length} 行</span>}
+        {viewMode === "source" && <span>{lines.length} lines</span>}
         <span>{formatSize(data.size)}</span>
 
         {/* Live watch indicator */}
         <span
-          title={watching ? "实时同步中" : "未监听"}
+          title={watching ? "Live sync active" : "Not watching"}
           style={{ display: "flex", alignItems: "center", gap: 4, color: watching ? "#4ade80" : "var(--text-dim)" }}
         >
           <span
@@ -837,7 +837,7 @@ function TextFileViewer({ filePath, cwd }: Props) {
               boxShadow: watching ? "0 0 4px #4ade80" : "none",
             }}
           />
-          {watching ? "实时" : "静态"}
+          {watching ? "live" : "static"}
         </span>
 
         {/* Diff / Source toggle — shown only when there are changes */}
@@ -852,7 +852,7 @@ function TextFileViewer({ filePath, cwd }: Props) {
                 fontWeight: viewMode === "source" ? 600 : 400,
               }}
             >
-              源码
+              Source
             </button>
             <button
               onClick={() => setViewMode("diff")}
@@ -863,7 +863,7 @@ function TextFileViewer({ filePath, cwd }: Props) {
                 fontWeight: viewMode === "diff" ? 600 : 400,
               }}
             >
-              差异 {changeCount > 0 && <span style={{ color: "#4ade80", marginLeft: 2 }}>+{changeCount}</span>}
+              Diff {changeCount > 0 && <span style={{ color: "#4ade80", marginLeft: 2 }}>+{changeCount}</span>}
             </button>
           </div>
         )}
@@ -872,7 +872,7 @@ function TextFileViewer({ filePath, cwd }: Props) {
         {viewMode === "source" && !previewMode && (
           <button
             onClick={() => setWrapLines((v) => !v)}
-            title={wrapLines ? "关闭自动换行" : "开启自动换行"}
+            title={wrapLines ? "Disable word wrap" : "Enable word wrap"}
             style={{
               padding: "2px 8px", fontSize: 11, cursor: "pointer",
               background: wrapLines ? "var(--bg-selected)" : "var(--bg-hover)",
@@ -881,7 +881,7 @@ function TextFileViewer({ filePath, cwd }: Props) {
               fontWeight: wrapLines ? 600 : 400,
             }}
           >
-            换行
+            wrap
           </button>
         )}
 
@@ -897,7 +897,7 @@ function TextFileViewer({ filePath, cwd }: Props) {
                 fontWeight: !previewMode ? 600 : 400,
               }}
             >
-              代码
+              Code
             </button>
             <button
               onClick={() => setPreviewMode(true)}
@@ -908,7 +908,7 @@ function TextFileViewer({ filePath, cwd }: Props) {
                 fontWeight: previewMode ? 600 : 400,
               }}
             >
-              预览
+              Preview
             </button>
           </div>
         )}
@@ -925,7 +925,7 @@ function TextFileViewer({ filePath, cwd }: Props) {
                 fontWeight: previewMode ? 600 : 400,
               }}
             >
-              预览
+              Preview
             </button>
             <button
               onClick={() => setPreviewMode(false)}
@@ -936,10 +936,11 @@ function TextFileViewer({ filePath, cwd }: Props) {
                 fontWeight: !previewMode ? 600 : 400,
               }}
             >
-              原文
+              Raw
             </button>
           </div>
         )}
+        <DownloadLink filePath={filePath} sourceSessionId={sourceSessionId} />
       </div>
 
       {/* Content area */}
@@ -951,7 +952,7 @@ function TextFileViewer({ filePath, cwd }: Props) {
             srcDoc={data.content}
             sandbox="allow-scripts"
             style={{ width: "100%", height: "100%", border: "none", background: "var(--bg)" }}
-            title="HTML 预览"
+            title="HTML preview"
           />
         ) : isMarkdown && previewMode ? (
           <div
