@@ -1511,6 +1511,7 @@ function EasyModelWizard({
   savedOk,
   saveError,
   onOpenAdvanced,
+  compactPicker,
 }: {
   config: ModelsJson;
   apiKeyProviders: ApiKeyProvider[];
@@ -1520,6 +1521,7 @@ function EasyModelWizard({
   savedOk: boolean;
   saveError: string | null;
   onOpenAdvanced: () => void;
+  compactPicker: boolean;
 }) {
   const [selectedPresetId, setSelectedPresetId] = useState(EASY_PROVIDER_PRESETS[0]?.id ?? "custom-openai");
   const [baseUrl, setBaseUrl] = useState("");
@@ -1727,46 +1729,69 @@ function EasyModelWizard({
             <div style={{ fontSize: 13, fontWeight: 700, color: "var(--text)" }}>选择供应商</div>
             <div style={{ fontSize: 11, color: "var(--text-dim)", marginTop: 2 }}>先选一个最接近的服务</div>
           </div>
-          <button
-            onClick={onOpenAdvanced}
-            style={{ padding: "5px 9px", border: "1px solid var(--border)", borderRadius: 6, background: "transparent", color: "var(--text-muted)", cursor: "pointer", fontSize: 11, whiteSpace: "nowrap" }}
-          >
-            高级配置
-          </button>
+          {!compactPicker && (
+            <button
+              onClick={onOpenAdvanced}
+              style={{ padding: "5px 9px", border: "1px solid var(--border)", borderRadius: 6, background: "transparent", color: "var(--text-muted)", cursor: "pointer", fontSize: 11, whiteSpace: "nowrap" }}
+            >
+              高级配置
+            </button>
+          )}
         </div>
 
-        <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(min(145px, 100%), 1fr))", gap: 8 }}>
-          {EASY_PROVIDER_PRESETS.map((item) => {
-            const active = item.id === selectedPresetId;
-            return (
-              <button
-                key={item.id}
-                onClick={() => setSelectedPresetId(item.id)}
-                style={{
-                  minHeight: 68,
-                  padding: "9px 10px",
-                  border: `1px solid ${active ? "var(--accent)" : "var(--border)"}`,
-                  borderRadius: 8,
-                  background: active ? "var(--bg-selected)" : "var(--bg-panel)",
-                  color: "var(--text)",
-                  cursor: "pointer",
-                  textAlign: "left",
-                  display: "flex",
-                  alignItems: "flex-start",
-                  gap: 8,
-                  minWidth: 0,
-                  boxSizing: "border-box",
-                }}
-              >
-                <ProviderIcon id={item.iconId} size={22} />
-                <span style={{ minWidth: 0, display: "flex", flexDirection: "column", gap: 3 }}>
-                  <span style={{ fontSize: 12, fontWeight: 700, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{item.name}</span>
-                  <span style={{ fontSize: 10, color: "var(--text-dim)", lineHeight: 1.35, overflowWrap: "anywhere" }}>{item.description}</span>
-                </span>
-              </button>
-            );
-          })}
-        </div>
+        {compactPicker ? (
+          <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+            <select
+              aria-label="选择供应商"
+              value={selectedPresetId}
+              onChange={(e) => setSelectedPresetId(e.target.value)}
+              style={{ ...inputStyle, flex: 1, minWidth: 0 }}
+            >
+              {EASY_PROVIDER_PRESETS.map((item) => (
+                <option key={item.id} value={item.id}>{item.name}</option>
+              ))}
+            </select>
+            <button
+              onClick={onOpenAdvanced}
+              style={{ padding: "7px 9px", border: "1px solid var(--border)", borderRadius: 6, background: "transparent", color: "var(--text-muted)", cursor: "pointer", fontSize: 11, whiteSpace: "nowrap" }}
+            >
+              高级配置
+            </button>
+          </div>
+        ) : (
+          <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(min(145px, 100%), 1fr))", gap: 8 }}>
+            {EASY_PROVIDER_PRESETS.map((item) => {
+              const active = item.id === selectedPresetId;
+              return (
+                <button
+                  key={item.id}
+                  onClick={() => setSelectedPresetId(item.id)}
+                  style={{
+                    minHeight: 68,
+                    padding: "9px 10px",
+                    border: `1px solid ${active ? "var(--accent)" : "var(--border)"}`,
+                    borderRadius: 8,
+                    background: active ? "var(--bg-selected)" : "var(--bg-panel)",
+                    color: "var(--text)",
+                    cursor: "pointer",
+                    textAlign: "left",
+                    display: "flex",
+                    alignItems: "flex-start",
+                    gap: 8,
+                    minWidth: 0,
+                    boxSizing: "border-box",
+                  }}
+                >
+                  <ProviderIcon id={item.iconId} size={22} />
+                  <span style={{ minWidth: 0, display: "flex", flexDirection: "column", gap: 3 }}>
+                    <span style={{ fontSize: 12, fontWeight: 700, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{item.name}</span>
+                    <span style={{ fontSize: 10, color: "var(--text-dim)", lineHeight: 1.35, overflowWrap: "anywhere" }}>{item.description}</span>
+                  </span>
+                </button>
+              );
+            })}
+          </div>
+        )}
       </div>
 
       <div style={{ minWidth: 0, display: "flex", flexDirection: "column", gap: 14 }}>
@@ -2247,7 +2272,14 @@ export function ModelsConfig({
 
         {/* Body */}
         {mode === "easy" ? (
-          <div style={{ flex: 1, overflowY: "auto", padding: 18 }}>
+          <div style={{
+            flex: 1,
+            minHeight: 0,
+            overflowY: "auto",
+            overscrollBehavior: "contain",
+            WebkitOverflowScrolling: "touch",
+            padding: isMobile ? 12 : 18,
+          }}>
             {loading ? (
               <div style={{ height: "100%", display: "flex", alignItems: "center", justifyContent: "center", color: "var(--text-dim)", fontSize: 13 }}>
                 正在加载...
@@ -2262,6 +2294,7 @@ export function ModelsConfig({
                 savedOk={savedOk}
                 saveError={saveError}
                 onOpenAdvanced={() => setMode("advanced")}
+                compactPicker={isMobile}
               />
             )}
           </div>
