@@ -1,15 +1,18 @@
 "use client";
 
-import { useCallback, useEffect, useRef, useState } from "react";
-import type { AgentMessage, ExtensionUiRequest, SessionInfo, SessionTreeNode } from "@/lib/types";
+import { Fragment, useCallback, useEffect, useRef, useState, type KeyboardEvent, type ReactNode } from "react";
+import type { AgentMessage, AssistantContentBlock, AssistantMessage, ExtensionUiRequest, SessionInfo, SessionTreeNode, ToolResultMessage } from "@/lib/types";
+import { normalizeCustomPanelLines, parseAnsiLine } from "@/lib/ansi";
+import { countToolCallBlocks, getDisplayableAssistantBlocks, splitFinalAssistantBlocks } from "@/lib/message-display";
 import { MessageView } from "./MessageView";
 import { ChatInput, type ChatInputHandle } from "./ChatInput";
 import { ChatMinimap, useMessageRefs } from "./ChatMinimap";
 import { useAgentSession, type AgentPhase, type NoticeItem } from "@/hooks/useAgentSession";
 import { useAudio } from "@/hooks/useAudio";
 import { useDragDrop } from "@/hooks/useDragDrop";
-import { STARTER_PROMPTS } from "@/lib/starter-prompts";
+import { useIsMobile } from "@/hooks/useIsMobile";
 import type { SessionStatsInfo } from "@/lib/pi-types";
+import { STARTER_PROMPTS } from "@/lib/starter-prompts";
 
 interface Props {
   session: SessionInfo | null;
@@ -23,8 +26,8 @@ interface Props {
   onSystemPromptChange?: (prompt: string | null) => void;
   onSessionStatsChange?: (stats: SessionStatsInfo | null) => void;
   onSessionStatsPanelOpen?: () => void;
-  onOpenModelsConfig?: () => void;
   onContextUsageChange?: (usage: { percent: number | null; contextWindow: number; tokens: number | null } | null) => void;
+  onOpenFile?: (filePath: string) => void;
   initialPrompt?: string | null;
   initialPromptKey?: string | null;
   onInitialPromptQueued?: () => void;
@@ -33,103 +36,147 @@ interface Props {
 function phaseLabel(phase: AgentPhase): string {
   if (phase?.kind === "running_tools") {
     const names = phase.tools.map((t) => t.name);
-    if (names.length === 0) return "正在运行工具...";
-    if (names.length === 1) return `正在运行 ${names[0]}...`;
-    if (names.length <= 3) return `正在运行 ${names.join(", ")}...`;
-    return `正在运行 ${names.slice(0, 2).join(", ")}（另 ${names.length - 2} 个）...`;
+    if (names.length === 0) return "Running tool...";
+    if (names.length === 1) return `Running ${names[0]}...`;
+    if (names.length <= 3) return `Running ${names.join(", ")}...`;
+    return `Running ${names.slice(0, 2).join(", ")} (+${names.length - 2})...`;
   }
-  if (phase?.kind === "waiting_model") return "等待模型回复...";
-  if (phase?.kind === "running_command") return "正在执行命令...";
-  return "正在思考...";
+  if (phase?.kind === "waiting_model") return "Waiting for model...";
+  if (phase?.kind === "running_command") return "Running command...";
+  return "Thinking...";
 }
-
-const TYPEWRITER_PHRASES = [
-  "直接问，也可以先选一个任务。",
-  "帮你读代码、改代码、跑验证。",
-  "把项目里的复杂问题说清楚。",
-  "浏览并理解整个代码库。",
-  "一起完成一次改动。",
-  "定位并修复一个问题。",
-  "审查当前改动风险。",
-  "把功能做到可验证。",
-];
 
 const CHAT_MINIMAP_WIDTH = 36;
 const CHAT_COLUMN_PADDING = 16;
 const CHAT_INPUT_RIGHT_PADDING = CHAT_COLUMN_PADDING + CHAT_MINIMAP_WIDTH;
 
-function Typewriter({ phrases }: { phrases: string[] }) {
-  const [phraseIdx, setPhraseIdx] = useState(() => Math.floor(Math.random() * phrases.length));
-  const [text, setText] = useState("");
-  const [deleting, setDeleting] = useState(false);
-  const [caretOn, setCaretOn] = useState(true);
+function hasFinalAssistantAnswer(message: AgentMessage): boolean {
+  if (message.role !== "assistant") return false;
+  return splitFinalAssistantBlocks(message as AssistantMessage).answerBlocks.some((block) => (
+    block.type === "image" || (block.type === "text" && block.text.trim().length > 0)
+  ));
+}
 
-  useEffect(() => {
-    const blink = setInterval(() => setCaretOn((v) => !v), 530);
-    return () => clearInterval(blink);
-  }, []);
+function findFinalAssistantIndex(messages: AgentMessage[], userIdx: number, endIdx: number): number {
+  for (let candidateIdx = endIdx - 1; candidateIdx > userIdx; candidateIdx--) {
+    if (hasFinalAssistantAnswer(messages[candidateIdx])) return candidateIdx;
+  }
+  for (let candidateIdx = endIdx - 1; candidateIdx > userIdx; candidateIdx--) {
+    if (messages[candidateIdx]?.role === "assistant") return candidateIdx;
+  }
+  return -1;
+}
 
-  useEffect(() => {
-    const current = phrases[phraseIdx];
-    let timeout: ReturnType<typeof setTimeout>;
-    if (!deleting && text === current) {
-      timeout = setTimeout(() => setDeleting(true), 1800);
-    } else if (deleting && text === "") {
-      setDeleting(false);
-      setPhraseIdx((i) => (i + 1) % phrases.length);
-    } else {
-      const next = deleting ? current.slice(0, text.length - 1) : current.slice(0, text.length + 1);
-      timeout = setTimeout(() => setText(next), deleting ? 28 : 55);
-    }
-    return () => clearTimeout(timeout);
-  }, [text, deleting, phraseIdx, phrases]);
+function countToolCalls(messages: AgentMessage[], indices: number[]): number {
+  let count = 0;
+  for (const idx of indices) {
+    const msg = messages[idx];
+    if (msg?.role !== "assistant") continue;
+    count += countToolCallBlocks(getDisplayableAssistantBlocks(msg as AssistantMessage));
+  }
+  return count;
+}
+
+function hasDisplayableProcessMessage(message: AgentMessage): boolean {
+  if (message.role === "assistant") {
+    return getDisplayableAssistantBlocks(message as AssistantMessage).length > 0;
+  }
+  return message.role === "custom";
+}
+
+function withAssistantBlocks(
+  message: AssistantMessage,
+  content: AssistantContentBlock[],
+  options: { omitUsage?: boolean } = {},
+): AssistantMessage {
+  const next = { ...message, content };
+  if (options.omitUsage) next.usage = undefined;
+  return next;
+}
+
+function ProcessDetailsGroup({ messageCount, toolCallCount, children }: { messageCount: number; toolCallCount: number; children: ReactNode }) {
+  const [expanded, setExpanded] = useState(false);
+  const parts = ["Process details", `${messageCount} ${messageCount === 1 ? "message" : "messages"}`];
+  if (toolCallCount > 0) parts.push(`${toolCallCount} ${toolCallCount === 1 ? "tool call" : "tool calls"}`);
 
   return (
-    <span style={{ color: "var(--text-muted)", fontWeight: 400 }}>
-      {text}
-      <span style={{ opacity: caretOn ? 1 : 0, color: "var(--accent)", marginLeft: 1 }}>▍</span>
-    </span>
+    <div style={{ marginBottom: 14 }}>
+      <button
+        type="button"
+        aria-expanded={expanded}
+        onClick={() => setExpanded((v) => !v)}
+        style={{
+          display: "flex",
+          alignItems: "center",
+          gap: 8,
+          width: "auto",
+          minHeight: 24,
+          padding: "2px 0",
+          border: "none",
+          background: "transparent",
+          color: "var(--text-muted)",
+          cursor: "pointer",
+          fontSize: 12,
+          textAlign: "left",
+        }}
+        title={expanded ? "Collapse process details" : "Expand process details"}
+      >
+        <svg width="12" height="12" viewBox="0 0 12 12" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" style={{ flexShrink: 0, transform: expanded ? "rotate(90deg)" : "none", transition: "transform 0.15s" }}>
+          <polyline points="4 2.5 7.5 6 4 9.5" />
+        </svg>
+        <span style={{ minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+          {parts.join(" · ")}
+        </span>
+      </button>
+      {expanded && (
+        <div style={{ marginTop: 8 }}>
+          {children}
+        </div>
+      )}
+    </div>
   );
 }
 
-export function ChatWindow({ session, newSessionCwd, onAgentEnd, onSessionCreated, onSessionForked, modelsRefreshKey, chatInputRef, onBranchDataChange, onSystemPromptChange, onSessionStatsChange, onSessionStatsPanelOpen, onOpenModelsConfig, onContextUsageChange, initialPrompt, initialPromptKey, onInitialPromptQueued }: Props) {
+export function ChatWindow({ session, newSessionCwd, onAgentEnd, onSessionCreated, onSessionForked, modelsRefreshKey, chatInputRef, onBranchDataChange, onSystemPromptChange, onSessionStatsChange, onSessionStatsPanelOpen, onContextUsageChange, onOpenFile, initialPrompt, initialPromptKey, onInitialPromptQueued }: Props) {
+  const { soundEnabled, onSoundToggle, playDoneSound, unlockAudio } = useAudio();
+  const isMobile = useIsMobile();
+
+  // Wrap onAgentEnd to play the completion sound. This is more reliable than
+  // wrapping handleAgentEventRef because useAgentSession overwrites that ref
+  // on every render (it syncs the latest callback), which would blow away an
+  // externally-installed wrapper after the first re-render.
+  const playDoneSoundRef = useRef(playDoneSound);
+  playDoneSoundRef.current = playDoneSound;
+  const soundEnabledRef = useRef(soundEnabled);
+  soundEnabledRef.current = soundEnabled;
+  const wrappedOnAgentEnd = useCallback(() => {
+    if (soundEnabledRef.current) {
+      playDoneSoundRef.current();
+    }
+    onAgentEnd?.();
+  }, [onAgentEnd]);
+
   const {
     loading, error, messages, entryIds, streamState,
     agentRunning, modelNames, modelList, modelThinkingLevels, modelThinkingLevelMaps, toolPreset, thinkingLevel,
     retryInfo, contextUsage, forkingEntryId,
     isCompacting, compactError, compactResult, displayModel: displayModelValue, sessionStats,
-    slashCommands, slashCommandsLoading,
-    notices, extensionDialog, extensionStatuses, extensionWidgets, respondToExtensionUi,
+    slashCommands, slashCommandsLoading, queuedMessages,
+    notices, extensionDialog, extensionCustomUi, extensionStatuses, extensionWidgets, respondToExtensionUi, sendExtensionCustomInput,
     isAutoModelSelection,
     agentPhase,
     isNew,
-    messagesEndRef, scrollContainerRef,
+    sessionIdRef, messagesEndRef, scrollContainerRef,
     lastUserMsgRef,
     handleSend, handleAbort, handleFork, handleNavigate, handleModelChange,
     handleCompact, handleSteer, handleFollowUp, handlePromptWithStreamingBehavior, handleAbortCompaction,
+    handleRecallQueue,
     handleBuiltinSlashCommand,
-    handleToolPresetChange, handleThinkingLevelChange, loadSlashCommands, handleAgentEventRef,
+    handleToolPresetChange, handleThinkingLevelChange, loadSlashCommands,
   } = useAgentSession({
-    session, newSessionCwd, onAgentEnd, onSessionCreated, onSessionForked,
-    modelsRefreshKey, onBranchDataChange, onSystemPromptChange, onSessionStatsPanelOpen,
+    session, newSessionCwd, onAgentEnd: wrappedOnAgentEnd, onSessionCreated, onSessionForked,
+    modelsRefreshKey, chatInputRef, onBranchDataChange, onSystemPromptChange, onSessionStatsPanelOpen,
   });
-
-  const { soundEnabled, onSoundToggle, playDoneSound } = useAudio();
-  const playDoneSoundRef = useRef(playDoneSound);
-  playDoneSoundRef.current = playDoneSound;
-  const soundEnabledRef = useRef(soundEnabled);
-  soundEnabledRef.current = soundEnabled;
-
-  // Wrap agent event handler to play sound on agent_end
-  const origHandler = handleAgentEventRef.current;
-  useEffect(() => {
-    handleAgentEventRef.current = (event) => {
-      if (event.type === "agent_end" && soundEnabledRef.current) {
-        playDoneSoundRef.current();
-      }
-      origHandler?.(event);
-    };
-  }, [origHandler, handleAgentEventRef]);
 
   // Push session stats up to AppShell for the top bar.
   // Compare scalar fields to avoid loops from new object identity each render.
@@ -170,8 +217,9 @@ export function ChatWindow({ session, newSessionCwd, onAgentEnd, onSessionCreate
   useEffect(() => () => { onContextUsageChange?.(null); }, [onContextUsageChange]);
 
   const onDrop = useCallback((files: File[]) => {
+    if (agentRunning) return;
     chatInputRef?.current?.addImages(files);
-  }, [chatInputRef]);
+  }, [agentRunning, chatInputRef]);
 
   const { isDragOver, handleDragEnter, handleDragOver, handleDragLeave, handleDrop } = useDragDrop(onDrop);
 
@@ -180,13 +228,15 @@ export function ChatWindow({ session, newSessionCwd, onAgentEnd, onSessionCreate
   const defaultFullToolsAppliedRef = useRef(false);
   const initialPromptSentKeyRef = useRef<string | null>(null);
 
+  const isEmptyNew = isNew && messages.length === 0 && !streamState.isStreaming && !agentRunning;
+  const messageCwd = session?.cwd ?? newSessionCwd ?? undefined;
+
   useEffect(() => {
     if (!isNew || defaultFullToolsAppliedRef.current) return;
     defaultFullToolsAppliedRef.current = true;
     if (toolPreset !== "full") void handleToolPresetChange("full");
-  }, [isNew, toolPreset, handleToolPresetChange]);
+  }, [handleToolPresetChange, isNew, toolPreset]);
 
-  const isEmptyNew = isNew && messages.length === 0 && !streamState.isStreaming && !agentRunning;
   const handleQuickStartPrompt = useCallback((prompt: string) => {
     chatInputRef?.current?.insertIfEmpty(prompt);
   }, [chatInputRef]);
@@ -194,22 +244,12 @@ export function ChatWindow({ session, newSessionCwd, onAgentEnd, onSessionCreate
   useEffect(() => {
     if (!initialPrompt || !initialPromptKey) return;
     if (initialPromptSentKeyRef.current === initialPromptKey) return;
-    if (!isEmptyNew || agentRunning || streamState.isStreaming) return;
-    if (toolPreset !== "full") return;
+    if (!isEmptyNew || agentRunning || streamState.isStreaming || toolPreset !== "full") return;
 
     initialPromptSentKeyRef.current = initialPromptKey;
     void handleSend(initialPrompt);
     onInitialPromptQueued?.();
-  }, [
-    agentRunning,
-    handleSend,
-    initialPrompt,
-    initialPromptKey,
-    isEmptyNew,
-    onInitialPromptQueued,
-    streamState.isStreaming,
-    toolPreset,
-  ]);
+  }, [agentRunning, handleSend, initialPrompt, initialPromptKey, isEmptyNew, onInitialPromptQueued, streamState.isStreaming, toolPreset]);
 
   const availableThinkingLevels = displayModelValue
     ? (modelThinkingLevels[`${displayModelValue.provider}:${displayModelValue.modelId}`] ?? null)
@@ -233,7 +273,6 @@ export function ChatWindow({ session, newSessionCwd, onAgentEnd, onSessionCreate
       modelNames={modelNames}
       modelList={modelList}
       onModelChange={handleModelChange}
-      onOpenModelsConfig={onOpenModelsConfig}
       onCompact={session || isNew ? handleCompact : undefined}
       onAbortCompaction={handleAbortCompaction}
       isCompacting={isCompacting}
@@ -246,12 +285,17 @@ export function ChatWindow({ session, newSessionCwd, onAgentEnd, onSessionCreate
       availableThinkingLevels={availableThinkingLevels}
       thinkingLevelMap={currentThinkingLevelMap}
       retryInfo={retryInfo}
+      queuedMessages={queuedMessages}
+      onRecallQueue={handleRecallQueue}
       slashCommands={slashCommands}
       slashCommandsLoading={slashCommandsLoading}
       onLoadSlashCommands={loadSlashCommands}
       onBuiltinCommand={handleBuiltinSlashCommand}
       soundEnabled={soundEnabled}
       onSoundToggle={onSoundToggle}
+      onAudioUnlock={unlockAudio}
+      draftKey={session?.id ?? (newSessionCwd ? `new:${newSessionCwd}` : undefined)}
+      cwd={session?.cwd ?? newSessionCwd}
     />
   );
 
@@ -261,7 +305,7 @@ export function ChatWindow({ session, newSessionCwd, onAgentEnd, onSessionCreate
   if (loading) {
     return (
       <div className="flex h-full items-center justify-center text-text-muted">
-        正在加载会话...
+        Loading session...
       </div>
     );
   }
@@ -282,7 +326,7 @@ export function ChatWindow({ session, newSessionCwd, onAgentEnd, onSessionCreate
       onDragLeave={handleDragLeave}
       onDrop={handleDrop}
     >
-      {isDragOver && (
+      {isDragOver && !agentRunning && (
         <div className="pointer-events-none absolute inset-0 z-50 flex animate-[drop-zone-in_0.15s_ease_both] items-center justify-center bg-[rgba(37,99,235,0.06)] backdrop-blur-[1px]">
           <div className="pointer-events-none absolute inset-0 flex items-center justify-center">
             {[0, 0.8, 1.6].map((delay) => (
@@ -321,107 +365,67 @@ export function ChatWindow({ session, newSessionCwd, onAgentEnd, onSessionCreate
         />
       )}
 
+      {extensionCustomUi && (
+        <ExtensionCustomPanel
+          request={extensionCustomUi}
+          onInput={sendExtensionCustomInput}
+        />
+      )}
+
       {isEmptyNew ? (
-        <div className="flex flex-1 flex-col overflow-hidden">
-          <div
-            className="flex flex-1 items-center justify-center overflow-y-auto px-4"
-            style={{
-              paddingTop: 56,
-              paddingBottom: 24,
-            }}
-          >
-            <div className="w-full max-w-[860px]">
-              <div
-                style={{
-                  display: "flex",
-                  flexDirection: "column",
-                  gap: 10,
-                  paddingLeft: 16,
-                  paddingRight: 52,
-                }}
-              >
-                <div style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", gap: 12 }}>
-                  <div style={{ display: "flex", alignItems: "flex-start", gap: 10, minWidth: 0, flex: 1 }}>
-                    <span style={{ fontSize: 30, lineHeight: 1.2, fontWeight: 750, letterSpacing: 0, color: "var(--text)", flexShrink: 0 }}>π</span>
-                    <h1 style={{ margin: 0, fontSize: 28, lineHeight: 1.25, color: "var(--text)", fontWeight: 720, letterSpacing: 0, overflow: "visible" }}>
-                      今天想让 Pi 做什么？
-                    </h1>
-                  </div>
-                  <div style={{ display: "flex", flexDirection: "column", alignItems: "flex-end", gap: 2, flexShrink: 0, fontFamily: "var(--font-mono)" }}>
-                    <span style={{ fontSize: 11, color: "var(--text-muted)" }}>
-                      web <span style={{ color: "var(--text)" }}>v{process.env.NEXT_PUBLIC_APP_VERSION ?? "0.0.0"}</span>
-                    </span>
-                    <span style={{ fontSize: 11, color: "var(--text-muted)" }}>
-                      pi <span style={{ color: "var(--text)" }}>v{process.env.NEXT_PUBLIC_PI_VERSION ?? "0.0.0"}</span>
-                    </span>
-                  </div>
-                </div>
-                <div style={{ fontSize: 14, color: "var(--text-muted)", lineHeight: 1.6, minHeight: 24 }}>
-                  <Typewriter phrases={TYPEWRITER_PHRASES} />
-                </div>
-              </div>
-            </div>
-          </div>
-          <div style={{ flexShrink: 0, paddingBottom: 8 }}>
-            <NoticeShelf notices={notices} align="right" />
+        <div className="flex flex-1 flex-col items-center justify-center overflow-y-auto px-4 py-8">
+          <div className="w-full max-w-[820px]">
             <div
+              className="mb-3"
               style={{
-                display: "grid",
-                gridTemplateColumns: "repeat(auto-fit, minmax(180px, 1fr))",
-                gap: 8,
-                maxWidth: 820,
-                margin: "0 auto",
-                padding: "0 52px 10px 16px",
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "space-between",
+                gap: 12,
+                marginLeft: 16,
+                marginRight: 52,
+                fontFamily: "var(--font-mono)",
               }}
             >
+              <div style={{ display: "flex", alignItems: "baseline", gap: 10, minWidth: 0, flex: 1, lineHeight: 1.4, overflow: "hidden" }}>
+                <span style={{ fontSize: 28, fontWeight: 700, letterSpacing: 0, color: "var(--text)", flexShrink: 0, whiteSpace: "nowrap" }}>π</span>
+                <span style={{ fontSize: 22, color: "var(--text)", fontWeight: 700, letterSpacing: 0, flexShrink: 0, whiteSpace: "nowrap" }}>Pi Agent Web</span>
+              </div>
+              <div style={{ display: "flex", flexDirection: "column", alignItems: "flex-end", gap: 2, flexShrink: 0 }}>
+                <span style={{ fontSize: 11, color: "var(--text-muted)" }}>
+                  web <span style={{ color: "var(--text)" }}>v{process.env.NEXT_PUBLIC_APP_VERSION ?? "0.0.0"}</span>
+                </span>
+                <span style={{ fontSize: 11, color: "var(--text-muted)" }}>
+                  pi <span style={{ color: "var(--text)" }}>v{process.env.NEXT_PUBLIC_PI_VERSION ?? "0.0.0"}</span>
+                </span>
+              </div>
+            </div>
+            <NoticeShelf notices={notices} align="right" />
+            <div className="mb-2 grid grid-cols-2 gap-2 sm:grid-cols-3 lg:grid-cols-4" style={{ marginLeft: isMobile ? 0 : 16, marginRight: isMobile ? 0 : 52 }}>
               {STARTER_PROMPTS.map((action) => (
                 <button
                   key={action.title}
                   type="button"
                   onClick={() => handleQuickStartPrompt(action.prompt)}
+                  aria-label={`${action.title}：${action.description}`}
+                  title={action.description}
                   style={{
-                    display: "flex",
-                    flexDirection: "column",
-                    alignItems: "flex-start",
-                    justifyContent: "center",
                     minWidth: 0,
-                    minHeight: 74,
-                    padding: "10px 12px",
+                    height: 42,
+                    padding: "6px 10px",
                     borderRadius: 8,
                     border: "1px solid color-mix(in srgb, var(--border) 78%, transparent)",
                     background: "color-mix(in srgb, var(--bg-panel) 70%, var(--bg))",
-                    color: "var(--text-muted)",
+                    color: "var(--text)",
                     cursor: "pointer",
-                    textAlign: "left",
-                    lineHeight: 1.35,
-                    boxShadow: "0 1px 2px rgba(15,23,42,0.03)",
-                    transition: "border-color 0.12s, background 0.12s, color 0.12s, transform 0.12s",
+                    fontSize: 13,
+                    fontWeight: 700,
+                    overflow: "hidden",
+                    textOverflow: "ellipsis",
+                    whiteSpace: "nowrap",
                   }}
-                  onMouseEnter={(e) => {
-                    e.currentTarget.style.borderColor = "color-mix(in srgb, var(--accent) 42%, var(--border))";
-                    e.currentTarget.style.background = "var(--bg-hover)";
-                    e.currentTarget.style.color = "var(--text)";
-                    e.currentTarget.style.transform = "translateY(-1px)";
-                  }}
-                  onMouseLeave={(e) => {
-                    e.currentTarget.style.borderColor = "color-mix(in srgb, var(--border) 78%, transparent)";
-                    e.currentTarget.style.background = "color-mix(in srgb, var(--bg-panel) 70%, var(--bg))";
-                    e.currentTarget.style.color = "var(--text-muted)";
-                    e.currentTarget.style.transform = "translateY(0)";
-                  }}
-                  title={action.description}
                 >
-                  <span style={{ fontSize: 13, fontWeight: 700, color: "var(--text)", overflowWrap: "anywhere" }}>
-                    {action.title}
-                  </span>
-                  <span style={{
-                    marginTop: 4,
-                    fontSize: 11,
-                    color: "var(--text-muted)",
-                    overflowWrap: "anywhere",
-                  }}>
-                    {action.description}
-                  </span>
+                  {action.title}
                 </button>
               ))}
             </div>
@@ -436,7 +440,7 @@ export function ChatWindow({ session, newSessionCwd, onAgentEnd, onSessionCreate
             position: "absolute",
             top: 12,
             left: 0,
-            right: CHAT_MINIMAP_WIDTH,
+            right: isMobile ? 0 : CHAT_MINIMAP_WIDTH,
             zIndex: 40,
             padding: `0 ${CHAT_COLUMN_PADDING}px`,
             pointerEvents: "none",
@@ -453,24 +457,40 @@ export function ChatWindow({ session, newSessionCwd, onAgentEnd, onSessionCreate
               <ExtensionWidgets widgets={aboveEditorWidgets} />
 
             {(() => {
-              const toolResultsMap = new Map<string, import("@/lib/types").ToolResultMessage>();
+              const toolResultsMap = new Map<string, ToolResultMessage>();
               for (const msg of messages) {
                 if (msg.role === "toolResult") {
-                  toolResultsMap.set((msg as import("@/lib/types").ToolResultMessage).toolCallId, msg as import("@/lib/types").ToolResultMessage);
+                  toolResultsMap.set((msg as ToolResultMessage).toolCallId, msg as ToolResultMessage);
                 }
               }
+
               let lastUserIdx = -1;
               for (let i = messages.length - 1; i >= 0; i--) {
                 if (messages[i].role === "user") { lastUserIdx = i; break; }
               }
+
+              const visibleRefIndexByMessage = new Map<number, number>();
               let refIdx = 0;
-              return messages.map((msg, idx) => {
+              messages.forEach((msg, idx) => {
+                if (msg.role === "user" || msg.role === "assistant") {
+                  visibleRefIndexByMessage.set(idx, refIdx++);
+                }
+              });
+
+              const attachVisibleRef = (idx: number, refIndex: number) => (el: HTMLDivElement | null) => {
+                messageRefs.current[refIndex] = el;
+                if (idx === lastUserIdx) { (lastUserMsgRef as { current: HTMLDivElement | null }).current = el; }
+              };
+
+              const renderMessage = (idx: number, options: { attachRef?: boolean; keyPrefix?: string; messageOverride?: AgentMessage; showTimestamp?: boolean } = {}): ReactNode => {
+                const msg = options.messageOverride ?? messages[idx];
                 const prevAssistantEntryId =
                   msg.role === "user" && idx > 0 && messages[idx - 1].role === "assistant"
                     ? entryIds[idx - 1]
                     : undefined;
                 const isVisible = msg.role === "user" || msg.role === "assistant";
-                const currentRefIdx = isVisible ? refIdx++ : -1;
+                const currentRefIdx = visibleRefIndexByMessage.get(idx);
+                const keyPrefix = options.keyPrefix ?? "message";
                 let showTimestamp = false;
                 if (msg.role === "assistant") {
                   showTimestamp = true;
@@ -484,12 +504,15 @@ export function ChatWindow({ session, newSessionCwd, onAgentEnd, onSessionCreate
                     showTimestamp = false;
                   }
                 }
+                if (options.showTimestamp !== undefined) showTimestamp = options.showTimestamp;
                 const view = (
                   <MessageView
-                    key={idx}
+                    key={`${keyPrefix}-view-${idx}`}
                     message={msg}
                     toolResults={toolResultsMap}
                     modelNames={modelNames}
+                    cwd={messageCwd}
+                    onOpenFile={onOpenFile}
                     entryId={entryIds[idx]}
                     onFork={agentRunning || isNew || (idx === 0 && msg.role === "user") ? undefined : handleFork}
                     forking={forkingEntryId === entryIds[idx]}
@@ -497,23 +520,104 @@ export function ChatWindow({ session, newSessionCwd, onAgentEnd, onSessionCreate
                     prevAssistantEntryId={agentRunning ? undefined : prevAssistantEntryId}
                     onEditContent={(content) => chatInputRef?.current?.insertIfEmpty(content)}
                     showTimestamp={showTimestamp}
-                    prevTimestamp={idx > 0 ? (messages[idx - 1] as import("@/lib/types").AgentMessage & { timestamp?: number }).timestamp : undefined}
+                    prevTimestamp={idx > 0 ? (messages[idx - 1] as AgentMessage & { timestamp?: number }).timestamp : undefined}
+                    sessionId={session?.id ?? sessionIdRef.current ?? undefined}
                   />
                 );
-                if (!isVisible) return view;
+                if (!isVisible || options.attachRef === false || currentRefIdx === undefined) return view;
                 return (
-                  <div key={idx} ref={(el) => {
-                    messageRefs.current[currentRefIdx] = el;
-                    if (idx === lastUserIdx) { (lastUserMsgRef as { current: HTMLDivElement | null }).current = el; }
-                  }}>
+                  <div key={`${keyPrefix}-${idx}`} ref={attachVisibleRef(idx, currentRefIdx)}>
                     {view}
                   </div>
                 );
-              });
+              };
+
+              const rendered: ReactNode[] = [];
+              for (let idx = 0; idx < messages.length;) {
+                const msg = messages[idx];
+                if (msg.role !== "user") {
+                  rendered.push(renderMessage(idx));
+                  idx += 1;
+                  continue;
+                }
+
+                const userIdx = idx;
+                let endIdx = userIdx + 1;
+                while (endIdx < messages.length && messages[endIdx].role !== "user") endIdx += 1;
+
+                const finalAssistantIdx = findFinalAssistantIndex(messages, userIdx, endIdx);
+
+                if (finalAssistantIdx === -1) {
+                  for (let renderIdx = userIdx; renderIdx < endIdx; renderIdx++) {
+                    rendered.push(renderMessage(renderIdx));
+                  }
+                  idx = endIdx;
+                  continue;
+                }
+
+                const isLiveTail = (agentRunning || streamState.isStreaming) && endIdx === messages.length && userIdx === lastUserIdx;
+                if (isLiveTail) {
+                  for (let renderIdx = userIdx; renderIdx < endIdx; renderIdx++) {
+                    rendered.push(renderMessage(renderIdx));
+                  }
+                  idx = endIdx;
+                  continue;
+                }
+
+                rendered.push(renderMessage(userIdx));
+
+                const processIndices: number[] = [];
+                for (let processIdx = userIdx + 1; processIdx < finalAssistantIdx; processIdx++) {
+                  processIndices.push(processIdx);
+                }
+                const visibleProcessIndices = processIndices.filter((processIdx) => hasDisplayableProcessMessage(messages[processIdx]));
+                const finalAssistant = messages[finalAssistantIdx] as AssistantMessage;
+                const finalSplit = splitFinalAssistantBlocks(finalAssistant);
+                const finalProcessMessage = finalSplit.processBlocks.length > 0
+                  ? withAssistantBlocks(finalAssistant, finalSplit.processBlocks, { omitUsage: true })
+                  : null;
+                const finalAnswerMessage = finalSplit.answerBlocks.length > 0
+                  ? withAssistantBlocks(finalAssistant, finalSplit.answerBlocks)
+                  : null;
+
+                const processCount = visibleProcessIndices.length + (finalProcessMessage ? 1 : 0);
+                if (processCount > 0) {
+                  const processRefIdx = visibleProcessIndices
+                    .map((processIdx) => visibleRefIndexByMessage.get(processIdx))
+                    .find((value): value is number => typeof value === "number")
+                    ?? (finalAnswerMessage ? undefined : visibleRefIndexByMessage.get(finalAssistantIdx));
+                  const processGroup = (
+                    <ProcessDetailsGroup
+                      messageCount={processCount}
+                      toolCallCount={countToolCalls(messages, visibleProcessIndices) + countToolCallBlocks(finalSplit.processBlocks)}
+                    >
+                      {visibleProcessIndices.map((processIdx) => renderMessage(processIdx, { attachRef: false, keyPrefix: "process" }))}
+                      {finalProcessMessage && renderMessage(finalAssistantIdx, { attachRef: false, keyPrefix: "process-final", messageOverride: finalProcessMessage, showTimestamp: false })}
+                    </ProcessDetailsGroup>
+                  );
+                  rendered.push(
+                    <div
+                      key={`process-group-${userIdx}-${finalAssistantIdx}`}
+                      ref={processRefIdx === undefined ? undefined : (el) => { messageRefs.current[processRefIdx] = el; }}
+                    >
+                      {processGroup}
+                    </div>,
+                  );
+                }
+
+                if (finalAnswerMessage) {
+                  rendered.push(renderMessage(finalAssistantIdx, { messageOverride: finalAnswerMessage }));
+                }
+                for (let renderIdx = finalAssistantIdx + 1; renderIdx < endIdx; renderIdx++) {
+                  rendered.push(renderMessage(renderIdx));
+                }
+                idx = endIdx;
+              }
+              return rendered;
             })()}
 
             {streamState.isStreaming && streamState.streamingMessage && (
-              <MessageView message={streamState.streamingMessage as AgentMessage} isStreaming modelNames={modelNames} />
+              <MessageView message={streamState.streamingMessage as AgentMessage} isStreaming modelNames={modelNames} cwd={messageCwd} onOpenFile={onOpenFile} />
             )}
 
             {agentRunning && !streamState.streamingMessage && (
@@ -530,19 +634,21 @@ export function ChatWindow({ session, newSessionCwd, onAgentEnd, onSessionCreate
             </div>
           </div>
         </div>
-        <ChatMinimap
-          messages={messages}
-          streamingMessage={streamState.streamingMessage}
-          scrollContainer={scrollContainerRef}
-          messageRefs={messageRefs}
-        />
+        {isMobile ? null : (
+          <ChatMinimap
+            messages={messages}
+            streamingMessage={streamState.streamingMessage}
+            scrollContainer={scrollContainerRef}
+            messageRefs={messageRefs}
+          />
+        )}
       </div>
 
       <div className="relative">
         <div
           style={{
             padding: `0 ${CHAT_COLUMN_PADDING}px`,
-            paddingRight: CHAT_INPUT_RIGHT_PADDING,
+            paddingRight: isMobile ? CHAT_COLUMN_PADDING : CHAT_INPUT_RIGHT_PADDING,
           }}
         >
           <div style={{ maxWidth: 820, margin: "0 auto" }}>
@@ -730,7 +836,7 @@ function ExtensionDialog({
       >
         <div style={{ padding: "12px 14px", borderBottom: "1px solid var(--border)" }}>
           <div style={{ color: "var(--text)", fontSize: 14, fontWeight: 650 }}>{request.title}</div>
-          <div style={{ marginTop: 3, color: "var(--text-dim)", fontSize: 11, fontFamily: "var(--font-mono)" }}>扩展请求</div>
+          <div style={{ marginTop: 3, color: "var(--text-dim)", fontSize: 11, fontFamily: "var(--font-mono)" }}>extension request</div>
         </div>
 
         <div style={{ padding: 14 }}>
@@ -821,7 +927,7 @@ function ExtensionDialog({
               cursor: "pointer",
             }}
           >
-            取消
+            Cancel
           </button>
           {request.method === "confirm" ? (
             <button
@@ -835,7 +941,7 @@ function ExtensionDialog({
                 cursor: "pointer",
               }}
             >
-              确认
+              Confirm
             </button>
           ) : request.method !== "select" ? (
             <button
@@ -849,10 +955,146 @@ function ExtensionDialog({
                 cursor: "pointer",
               }}
             >
-              提交
+              Submit
             </button>
           ) : null}
         </div>
+      </div>
+    </div>
+  );
+}
+
+type ExtensionCustomRequest = Extract<ExtensionUiRequest, { method: "custom" }>;
+
+function toTerminalKeyData(e: KeyboardEvent): string | null {
+  if (e.ctrlKey && !e.metaKey && !e.altKey && e.key.length === 1) {
+    const ch = e.key.toLowerCase();
+    if (ch >= "a" && ch <= "z") {
+      return String.fromCharCode(ch.charCodeAt(0) - 96);
+    }
+  }
+
+  switch (e.key) {
+    case "ArrowUp":
+      return "\x1b[A";
+    case "ArrowDown":
+      return "\x1b[B";
+    case "ArrowRight":
+      return "\x1b[C";
+    case "ArrowLeft":
+      return "\x1b[D";
+    case "Enter":
+      return "\r";
+    case "Escape":
+      return "\x1b";
+    case "Backspace":
+      return "\x7f";
+    case "Tab":
+      return "\t";
+    case " ":
+      return " ";
+    default:
+      if (!e.ctrlKey && !e.metaKey && !e.altKey && e.key.length === 1) return e.key;
+      return null;
+  }
+}
+
+function renderAnsiLine(line: string, keyPrefix: string): ReactNode[] {
+  return parseAnsiLine(line).map((segment, index) => (
+    Object.keys(segment.style).length > 0
+      ? <span key={`${keyPrefix}-${index}`} style={segment.style}>{segment.text}</span>
+      : segment.text
+  ));
+}
+
+function ExtensionCustomPanel({
+  request,
+  onInput,
+}: {
+  request: ExtensionCustomRequest;
+  onInput: (request: ExtensionCustomRequest, data: string) => void;
+}) {
+  const panelRef = useRef<HTMLDivElement>(null);
+  const displayLines = normalizeCustomPanelLines(request.lines);
+
+  useEffect(() => {
+    panelRef.current?.focus();
+  }, [request.id]);
+
+  return (
+    <div
+      style={{
+        position: "absolute",
+        inset: 0,
+        zIndex: 95,
+        display: "flex",
+        alignItems: "center",
+        justifyContent: "center",
+        padding: 20,
+        background: "rgba(0,0,0,0.18)",
+      }}
+    >
+      <div
+        ref={panelRef}
+        tabIndex={0}
+        role="dialog"
+        aria-modal="true"
+        onKeyDown={(e) => {
+          const data = toTerminalKeyData(e);
+          if (!data) return;
+          e.preventDefault();
+          e.stopPropagation();
+          onInput(request, data);
+        }}
+        style={{
+          width: "min(920px, 100%)",
+          maxHeight: "min(760px, calc(100vh - 40px))",
+          border: "1px solid var(--border)",
+          borderRadius: 8,
+          background: "var(--bg)",
+          boxShadow: "0 20px 60px rgba(0,0,0,0.28)",
+          overflow: "hidden",
+          outline: "none",
+        }}
+      >
+        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12, padding: "10px 12px", borderBottom: "1px solid var(--border)" }}>
+          <div style={{ color: "var(--text)", fontSize: 13, fontWeight: 650 }}>Extension panel</div>
+          <button
+            onClick={() => onInput(request, "\x03")}
+            style={{
+              padding: "5px 9px",
+              borderRadius: 6,
+              border: "1px solid var(--border)",
+              background: "var(--bg-panel)",
+              color: "var(--text-muted)",
+              cursor: "pointer",
+              fontSize: 12,
+            }}
+          >
+            Close
+          </button>
+        </div>
+        <pre
+          style={{
+            margin: 0,
+            padding: 14,
+            maxHeight: "calc(min(760px, 100vh - 40px) - 48px)",
+            overflow: "auto",
+            background: "var(--bg-panel)",
+            color: "var(--text)",
+            fontFamily: "var(--font-mono)",
+            fontSize: 13,
+            lineHeight: 1.45,
+            whiteSpace: "pre",
+          }}
+        >
+          {(displayLines.length ? displayLines : [""]).map((line, index, allLines) => (
+            <Fragment key={index}>
+              {renderAnsiLine(line, `line-${index}`)}
+              {index < allLines.length - 1 ? "\n" : null}
+            </Fragment>
+          ))}
+        </pre>
       </div>
     </div>
   );

@@ -66,8 +66,16 @@ child.stdout.on("data", (chunk) => {
     const isWindows = process.platform === "win32";
     const isMac = process.platform === "darwin";
     const openCmd = isWindows ? "start" : isMac ? "open" : "xdg-open";
-    const opener = spawn(openCmd, [url], { shell: isWindows, stdio: "ignore", detached: true });
-    opener.on("error", () => {});
+    const opener = spawn(openCmd, [url], {
+      shell: isWindows,
+      stdio: "ignore",
+      detached: true,
+    });
+
+    opener.on("error", (error) => {
+      console.warn(`Could not open browser automatically: ${error.message}`);
+    });
+
     opener.unref();
   }
 });
